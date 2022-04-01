@@ -20,17 +20,32 @@ public class Webserver extends NanoHTTPD {
 
     @Override
     public Response serve(IHTTPSession session) {
+        System.out.println("Serv respond");
         String msg = "<script type=\"text/javascript\">close();</script>";
         Map<String, List<String>> parms = session.getParameters();
+        Map<String, String> heads = session.getHeaders();
         for (String key : parms.keySet()) {
-            if (key.equalsIgnoreCase("token")) {
-                janna.oauth = parms.get(key).get(0);
-                System.out.println(janna.oauth);
+            if (key.equalsIgnoreCase("access_token")) {
+                Creds._helixtoken = parms.get(key).get(0);
+                System.out.println(Creds._helixtoken);
             }
             for (String value : parms.get(key)) {
                 System.out.println("Value: " + value);
             }
         }
+
+
+        /*for (String key : heads.keySet()) {
+            if (key.equalsIgnoreCase("access_token")) {
+                Creds._clienttoken = parms.get(key).get(0);
+                System.out.println(Creds._clienttoken);
+            }
+                System.out.println("head Value: " + heads.get(key));
+        }*/
+
+
         return newFixedLengthResponse(msg);
     }
+
+
 }

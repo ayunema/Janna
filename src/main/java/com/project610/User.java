@@ -9,11 +9,12 @@ public class User {
     public double voiceSpeed;
     public double voicePitch;
     public double voiceVolume;
+    public int freeVoice;
     Janna janna;
     HashMap<String, String> prefs;
 
 
-    public User (Janna janna, int id, String name, String voiceName, double voiceSpeed, double voicePitch, double voiceVolume) {
+    public User (Janna janna, int id, String name, String voiceName, double voiceSpeed, double voicePitch, double voiceVolume, int freeVoice) {
         this.id = id;
         this.name = name;
         this.voiceName = voiceName;
@@ -21,6 +22,7 @@ public class User {
         this.voicePitch = voicePitch;
         this.janna = janna;
         this.voiceVolume = voiceVolume;
+        this.freeVoice = freeVoice;
 
         prefs = getPrefs();
     }

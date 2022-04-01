@@ -1,10 +1,16 @@
 package com.project610;
 
+import com.github.twitch4j.helix.domain.Emote;
+import com.github.twitch4j.kraken.domain.Emoticon;
+import com.github.twitch4j.kraken.domain.EmoticonImages;
+import jdk.nashorn.internal.runtime.regexp.joni.Regex;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.util.ArrayList;
 
 import static com.project610.Janna.error;
+import static com.project610.Janna.mainchannel;
 
 public class ListenThread extends Thread {
     BufferedReader br;
@@ -35,6 +41,9 @@ public class ListenThread extends Thread {
                         Janna.send("PONG " + split[1]);
                     }
                     else if (split[1].equals("PRIVMSG")) {
+                        Regex rx_url = new Regex("([a-zA-Z]+:\\/\\/)?[a-zA-Z0-9]+(\\.[a-zA-Z]{2,})*\\.[a-zA-Z]{2,}(:\\d+)?(\\/[^\\s]+)*");
+                        Regex rx_emote = new Regex("[a-z0-9]+([A-Z0-9][a-zA-Z0-9]+)+");
+
                         User user = janna.getUser(getName(split[0]));
                         String message = split[3].substring(1).trim();
                         Janna.chatArea.append("\n"+getName(split[0]) + ": " + message);
@@ -69,7 +78,7 @@ public class ListenThread extends Thread {
                         }
 
                         if (canSpeak) {
-                            voices.add(new Voice(Janna.butcher(message, user), user));
+                            voices.add(new Voice(Janna.butcher(user.name + ": " + message, user), user));
                         }
                         //new Speaker(message).start();
                     }
@@ -95,11 +104,11 @@ public class ListenThread extends Thread {
             // TODO
         } else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
             if (janna.setUserPref(user, "butt_stuff", "0")) {
-                janna.twitch.getChat().sendMessage("virus610", "Okay, I won't butt you, bro.");
+                janna.twitch.getChat().sendMessage(mainchannel, "Okay, I won't butt you, bro.");
             }
         } else if (cmd.equalsIgnoreCase("dobuttmebro")) {
             if (janna.setUserPref(user, "butt_stuff", "1")) {
-                janna.twitch.getChat().sendMessage("virus610", "Can't get enough of that butt.");
+                janna.twitch.getChat().sendMessage(mainchannel, "Can't get enough of that butt.");
             }
         } else if (cmd.equalsIgnoreCase("mute")) {
             // TODO

@@ -6,7 +6,6 @@ import java.awt.event.KeyListener;
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
@@ -18,14 +17,14 @@ import java.util.List;
 import com.github.philippheuer.credentialmanager.domain.OAuth2Credential;
 import com.github.twitch4j.TwitchClient;
 import com.github.twitch4j.TwitchClientBuilder;
+import com.github.twitch4j.auth.providers.TwitchIdentityProvider;
 import com.github.twitch4j.chat.events.channel.ChannelMessageEvent;
-import com.github.twitch4j.kraken.domain.KrakenUserList;
+import com.github.twitch4j.eventsub.domain.RedemptionStatus;
+import com.github.twitch4j.helix.domain.CustomReward;
 import com.github.twitch4j.pubsub.domain.ChannelPointsRedemption;
 import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
-import javafx.scene.control.TextArea;
 
-import org.java_websocket.client.WebSocketClient;
-import org.sqlite.SQLiteConfig;
+import com.netflix.hystrix.exception.HystrixRuntimeException;
 import org.sqlite.SQLiteDataSource;
 
 import javax.swing.*;
@@ -35,12 +34,12 @@ import static javax.swing.BoxLayout.PAGE_AXIS;
 
 public class Janna extends JPanel {
 
-    private static final int LOG_LEVEL = 6;
+    public static Janna instance;
+    private static final int LOG_LEVEL = 5;
     static BufferedReader inputReader = null;
     static BufferedReader channelReader = null;
     static BufferedWriter channelWriter = null;
-    //static ListenThread listenThread;
-    //public static TextArea chatArea;
+
     public Socket socket = null;
     public Connection sqlCon;
     //public static TextToSpeech tts = new TextToSpeech();
@@ -53,17 +52,19 @@ public class Janna extends JPanel {
     public static HashMap<Integer, User> users = new HashMap<>();
     public static HashMap<String, Integer> userIds = new HashMap<>();
 
-    WebSocketClient client;
-    Webserver webserver;
-
-    String oauth = "";
+    public static String mainchannel;
+    //public static String mainchannel_id;
+    public static com.github.twitch4j.helix.domain.User mainchannel_user;
+    public static String[] extraChannels;
     public static TwitchClient twitch;
+    public static TwitchIdentityProvider tip;
+    private OAuth2Credential credential;
 
     public ArrayList<String> muteList = new ArrayList<>();
-    public ArrayList<String> whitelist= new ArrayList<>();
+    public ArrayList<String> whitelist = new ArrayList<>();
     public boolean whitelistOnly = false;
 
-
+    public ArrayList<String> emotes = new ArrayList<>();
 
 
 
@@ -77,6 +78,8 @@ public class Janna extends JPanel {
     Path configPath = Paths.get("config.ini");
 
     public Janna(String[] args, JFrame jf) {
+        Janna.instance = this;
+
         parent = jf;
         setLayout(new BoxLayout(this, PAGE_AXIS));
 
@@ -87,6 +90,24 @@ public class Janna extends JPanel {
         }
     }
 
+    public void saveAuthToken(String token) {
+        try {
+            PreparedStatement ps = Janna.instance.sqlCon.prepareStatement("INSERT INTO auth (token) VALUES (?);");
+            ps.setString(1, token);
+            ps.execute();
+        }
+        catch (Exception ex) {
+            error("Failed to save auth token, that's gon' cause problems", ex);
+        }
+
+        setAuthToken(token);
+    }
+
+    public void setAuthToken(String token) {
+        Creds._helixtoken = token;
+
+        postAuth();
+    }
 
 
     public void initUI() throws Exception {
@@ -111,6 +132,14 @@ public class Janna extends JPanel {
 
         inputField = new JTextField();
         inputField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20));
+
+        parent.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent windowEvent) {
+                try {
+                    //webserver.stop();
+                } catch (Exception ex) {}
+            }});
 
         inputField.addKeyListener(new KeyListener() {
             @Override
@@ -192,11 +221,22 @@ public class Janna extends JPanel {
             List<String> config = Files.readAllLines(configPath);
             for (String s : config) {
                 s = s.trim();
-                if (s.charAt(0) == '#') continue;
+                if (s.isEmpty() || s.charAt(0) == '#') continue;
                 if (s.indexOf("username=") == 0) {
                     Creds._username = s.split("=", 2)[1];
                 } else if (s.indexOf("oauth=") == 0) {
                     Creds._password = s.split("=", 2)[1];
+                } else if (s.indexOf("clientid=") == 0) {
+                    Creds._clientid = s.split("=", 2)[1];
+                } else if (s.indexOf("clientsecret=") == 0) {
+                    Creds._clientsecret = s.split("=", 2)[1];
+                } else if (s.indexOf("mainchannel=") == 0) {
+                    mainchannel = s.split("=", 2)[1].toLowerCase();
+                } else if (s.indexOf("extrachannels=") == 0) {
+                    extraChannels = s.split("=", 2)[1].split(",");
+                    for (int i = 0; i < extraChannels.length; i++) {
+                        extraChannels[i] = extraChannels[i].trim().toLowerCase();
+                    }
                 }
             }
             if (Creds._username.isEmpty() || Creds._password.isEmpty()) {
@@ -205,13 +245,25 @@ public class Janna extends JPanel {
         } catch (Exception ex) {
             warn("Failed to load username or oauth token, please update `config.ini` with your chat credentials");
             if (!Files.exists(configPath)) {
-                Files.write(configPath, "# Login credentials go here. You don't want to use your password, but an OAUTH token,\n# which you can get from here: https://twitchapps.com/tmi/\nusername=\noauth=\n".getBytes());
+                Files.write(configPath, (
+                        "# Login credentials go here. You must not use your password, but an OAUTH token,\n" +
+                        "# which you can get from here: https://twitchapps.com/tmi/\n" +
+                        "username=\n" +
+                        "oauth=\n" +
+                        "\n" +
+                        "# Primary channel to listen for chat (And handle channel point redemptions)\n" +
+                        "mainchannel=\n" +
+                        "\n" +
+                        "# This is kinda wonky right now. It'll read out stuff from other channels, and any messages sent by the bot will be sent to these channels as well\n" +
+                        "# (Comma separated list, eg: channel6,channel1,channel0)\n" +
+                        "extrachannels=\n").getBytes());
             }
         }
 
 
 
-        SQLiteConfig sqlConfig = new SQLiteConfig();
+
+
         SQLiteDataSource sqlDataSource = new SQLiteDataSource();
         sqlDataSource.setUrl("jdbc:sqlite:janna.sqlite");
 
@@ -224,6 +276,7 @@ public class Janna extends JPanel {
                 + ", voicespeed DOUBLE DEFAULT 1"
                 + ", voicepitch DOUBLE DEFAULT 0"
                 + ", voicevolume DOUBLE DEFAULT 1"
+                + ", freevoice INTEGER DEFAULT 1"
                 + ");"
         );
         createUserTable.execute();
@@ -250,12 +303,19 @@ public class Janna extends JPanel {
                 + ");"
         );
         createUserPrefTable.execute();
-
         addPref("butt_stuff");
 
-        OAuth2Credential credential = new OAuth2Credential("twitch", Creds._password);
+        PreparedStatement createAuthTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS auth ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", token VARCHAR(1024)"
+                + ");"
+        );
+        createAuthTable.execute();
+
+        credential = new OAuth2Credential("twitch", Creds._password);
 
         twitch = TwitchClientBuilder.builder()
+                .withClientId(Creds._clientid)
                 .withEnableChat(true)
                 .withChatAccount(credential)
                 .withEnablePubSub(true)
@@ -266,17 +326,26 @@ public class Janna extends JPanel {
 
         twitch.getPubSub().connect();
 
-        twitch.getChat().joinChannel("virus610");
-        twitch.getChat().joinChannel("notvirus610");
+        twitch.getChat().joinChannel(mainchannel);
+        for (String extraChannel : extraChannels) {
+            twitch.getChat().joinChannel(extraChannel);
+        }
 
         twitch.getEventManager().onEvent(ChannelMessageEvent.class, this::readMessage);
         //twitch.getChat().sendMessage("virus610", "Butt.");
 
-        KrakenUserList resultList = twitch.getKraken().getUsersByLogin(Arrays.asList("virus610")).execute(); // 28491996
-        System.out.println(resultList.getUsers().get(0).getId());
+        /*KrakenUserList resultList = twitch.getKraken().getUsersByLogin(Arrays.asList(mainchannel)).execute(); // 28491996
+        mainchannel_id = resultList.getUsers().get(0).getId();
+        KrakenUser ku = resultList.getUsers().get(0);
+        System.out.println("user: " + ku.getDisplayName() + " / " + ku.getId());*/
 
-        twitch.getPubSub().listenForChannelPointsRedemptionEvents(credential, "28491996");
-        twitch.getEventManager().onEvent(RewardRedeemedEvent.class, this::rewardRedeemed);
+
+
+
+
+        AuthListen.getToken();
+
+
 
         voiceNames.add("en-AU-Standard-A");
         voiceNames.add("en-AU-Standard-C");
@@ -303,8 +372,12 @@ public class Janna extends JPanel {
         muteList.add("ircbot610");
         muteList.add("buttsbot");
         muteList.add("saltlogic");
+        muteList.add("streamlabs");
+        muteList.add("streamelements");
 
         long ticks = 0;
+
+
 
         try {
             inputReader = new BufferedReader(new InputStreamReader(System.in));
@@ -351,11 +424,127 @@ public class Janna extends JPanel {
         });*/
     }
 
-    private void sendChat() {
-        /*if (!socket.isConnected()) {
-            System.out.println("Not connected, apparently!");
-        }*/
+    public void connectTwitch() {
 
+    }
+
+    public void postAuth() {
+        try {
+
+            twitch.getPubSub().listenForChannelPointsRedemptionEvents(credential, mainchannel_user.getId());
+            twitch.getEventManager().onEvent(RewardRedeemedEvent.class, this::rewardRedeemed);
+
+            mainchannel_user = twitch.getHelix().getUsers(Creds._helixtoken, null, Arrays.asList(mainchannel)).execute().getUsers().get(0);
+            //mainchannel_id = mainchannel_user.getId();
+
+            setupCustomRewards();
+
+        }
+        catch (Exception ex) {
+            error("Error doing postAuth stuff", ex);
+        }
+    }
+
+    private void setupCustomRewards() {
+
+        generateTTSReward(
+                "TTS: Slow down my voice",
+                "Make your TTS voice slightly slower",
+                256,
+                "#3664A1",
+                false,
+                true
+        );
+
+        generateTTSReward(
+                "TTS: Speed up my voice",
+                "Make your TTS voice slightly faster",
+                256,
+                "#FF6905",
+                false,
+                true
+        );
+
+        generateTTSReward(
+                "TTS: Lower my voice pitch",
+                "Make your TTS voice a little deeper",
+                256,
+                "#FA2929",
+                false,
+                true
+        );
+
+        generateTTSReward(
+                "TTS: Raise my voice pitch",
+                "Make your TTS voice a little higher",
+                256,
+                "#58FF0D",
+                false,
+                true
+        );
+
+        generateTTSReward(
+                "TTS: Set my voice accent",
+                "Pick a base TTS voice from this list (eg: en-GB-Standard-A): https://docs.google.com/spreadsheets/d/1hrhoy3yoLjKE_N_XgHwG8qFAWWxMch6CerqV2xX-XOs",
+                4096,
+                "#29FAEA",
+                true,
+                true
+        );
+
+        generateTTSReward(
+                "*NEWCOMERS ONLY* TTS: Set my voice accent",
+                "You can only do this once! Pick a base TTS voice from this list (eg: en-GB-Standard-A): https://docs.google.com/spreadsheets/d/1hrhoy3yoLjKE_N_XgHwG8qFAWWxMch6CerqV2xX-XOs",
+                300,
+                "#94FA3A",
+                true,
+                true
+        );
+    }
+
+    private void uploadCustomReward(CustomReward reward) {
+        try {
+            twitch.getHelix().createCustomReward(Creds._helixtoken, mainchannel_user.getId(), reward).execute();
+        } catch (HystrixRuntimeException ex) {
+            debug("Most likely a duplicate, because I was too lazy to check for pre-existing: " + reward.getTitle());
+        }
+    }
+
+    private CustomReward generateTTSReward (String title, String prompt, int cost, String backgroundColor, boolean inputRequired, boolean uploadImmediately) {
+        CustomReward reward = generateSimplifiedCustomReward()
+                .title(title)
+                .prompt(prompt)
+                .cost(cost)
+                .backgroundColor(backgroundColor)
+                .isUserInputRequired(inputRequired)
+                .build();
+
+        if (uploadImmediately) {
+            uploadCustomReward(reward);
+        }
+
+        return reward;
+    }
+
+    private CustomReward.CustomRewardBuilder generateSimplifiedCustomReward() {
+        return CustomReward.builder()
+
+                .globalCooldownSetting(CustomReward.GlobalCooldownSetting.builder().globalCooldownSeconds(0).isEnabled(false).build())
+                .maxPerStreamSetting(CustomReward.MaxPerStreamSetting.builder().isEnabled(false).maxPerStream(0).build())
+                .maxPerUserPerStreamSetting(CustomReward.MaxPerUserPerStreamSetting.builder().isEnabled(false).maxPerUserPerStream(0).build())
+                .shouldRedemptionsSkipRequestQueue(false)
+
+                .isEnabled(true)
+                .isPaused(false)
+                .isInStock(true)
+
+                .broadcasterId(mainchannel_user.getId())
+                .broadcasterLogin(mainchannel_user.getLogin())
+                .broadcasterName(mainchannel_user.getDisplayName())
+                .id(UUID.randomUUID().toString());
+    }
+
+    private void sendChat() {
         String message = inputField.getText();
         inputField.setText("");
 
@@ -394,33 +583,32 @@ public class Janna extends JPanel {
                 redeemed = 1;
             }
         }
-        else if (reward.equalsIgnoreCase("TTS: Lower my voice")) {
+        else if (reward.equalsIgnoreCase("TTS: Lower my voice pitch")) {
             if (currentUser.voicePitch > -20) {
                 currentUser.voicePitch -= 1;
                 currentUser.save();
                 redeemed = 1;
             } else {
-                sendMessage(username + ": Your voice is as low as it gets!");
+                sendMessage(username + ": Your voice is as low as it gets! (@" + username + ")");
             }
         }
-        else if (reward.equalsIgnoreCase("TTS: Raise my voice")) {
+        else if (reward.equalsIgnoreCase("TTS: Raise my voice pitch")) {
             if ( currentUser.voicePitch < 20) {
                 currentUser.voicePitch += 1;
                 currentUser.save();
                 redeemed = 1;
             }
             else {
-                sendMessage(username + ": I can't raise your voice any higher than this");
+                sendMessage(username + ": I can't raise your voice any higher than this (@" + username + ")");
             }
         }
         else if (reward.equalsIgnoreCase("TTS: Slow down my voice")) {
-            if ( currentUser.voiceSpeed > 0.50) {
-                currentUser.voiceSpeed -= 0.50;
+            if (currentUser.voiceSpeed > 0.75) {
+                currentUser.voiceSpeed -= 0.25;
                 currentUser.save();
                 redeemed = 1;
-            }
-            else {
-                sendMessage("nnnnoooooooooooo");
+            } else {
+                sendMessage("Your voice is already minimum speed (@" + username + "");
             }
         }
         else if (reward.equalsIgnoreCase("TTS: Speed up my voice")) {
@@ -430,21 +618,19 @@ public class Janna extends JPanel {
                 redeemed = 1;
             }
             else {
-                sendMessage("NO");
+                sendMessage("Your voice is already max speed (@" + username + "");
             }
         }
-        else if (reward.equalsIgnoreCase("TTS: Set my voice type")) {
-            String input = event.getRedemption().getUserInput().trim();
-            if (voiceNames.contains(input)) {
-                if (!currentUser.voiceName.equalsIgnoreCase(input)) {
-                    currentUser.voiceName = input;
-                    currentUser.save();
-                    redeemed = 1;
-                } else {
-                    sendMessage("Bruh you're already usin' that voice ("+username+")");
-                }
-            } else {
-                sendMessage("That voice ain't real, yo ("+username+")");
+        else if (reward.equalsIgnoreCase("TTS: Set my voice accent")) {
+            redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), false);
+        }
+        else if (reward.equalsIgnoreCase("*NEWCOMERS ONLY* TTS: Set my voice accent")) {
+            if (currentUser.freeVoice > 0) {
+                redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), true);
+            }
+            else {
+                sendMessage("Scam detected. I'm keeping those channel points.  (@" + currentUser.name + ")");
+                redeemed = 1;
             }
         }
         // If not handled by this bot, don't deal with redemption
@@ -453,10 +639,14 @@ public class Janna extends JPanel {
         }
 
         if (redeemed != -1) {
+            Collection<String> redemption_ids = new ArrayList<>();
+            redemption_ids.add(redemption.getId());
             if (redeemed == 1) {
                 redemption.setStatus("FULFILLED");
+                twitch.getHelix().updateRedemptionStatus(Creds._helixtoken, mainchannel_user.getId(), redemption.getReward().getId(), redemption_ids, RedemptionStatus.FULFILLED).execute();
             } else {
                 redemption.setStatus("CANCELED");
+                twitch.getHelix().updateRedemptionStatus(Creds._helixtoken, mainchannel_user.getId(), redemption.getReward().getId(), redemption_ids, RedemptionStatus.CANCELED).execute();
             }
 
             /*try {
@@ -476,6 +666,22 @@ public class Janna extends JPanel {
         //System.out.println(event.toString());
     }
 
+    public int changeUserVoice(User currentUser, String input, boolean freebie) {
+        if (voiceNames.contains(input)) {
+            if (!currentUser.voiceName.equalsIgnoreCase(input)) {
+                currentUser.voiceName = input;
+                if (freebie && currentUser.freeVoice > 0) currentUser.freeVoice--;
+                currentUser.save();
+                return 1;
+            } else {
+                sendMessage("Bruh you're already usin' that voice (@" + currentUser.name + ")");
+            }
+        } else {
+            sendMessage("That voice ain't real, yo (@" + currentUser.name + ")");
+        }
+        return 0;
+    }
+
     public void saveUser(User user) {
         try {
             PreparedStatement update = sqlCon.prepareStatement("UPDATE user SET"
@@ -483,13 +689,15 @@ public class Janna extends JPanel {
                     + ", voicespeed=?"
                     + ", voicepitch=?"
                     + ", voicevolume=?"
+                    + ", freevoice=?"
                     + " WHERE id=?"
             );
             update.setString(1, user.voiceName);
             update.setDouble(2, user.voiceSpeed);
             update.setDouble(3, user.voicePitch);
             update.setDouble(4,user.voiceVolume);
-            update.setInt(5,user.id);
+            update.setDouble(5,user.freeVoice);
+            update.setInt(6,user.id);
             update.executeUpdate();
         } catch (Exception ex) {
             error("Failed to save user: " + user.name, ex);
@@ -526,12 +734,15 @@ public class Janna extends JPanel {
 
     public static String butcher(String s, User user) {
         String result = "";
+        s = s.toLowerCase();
         String[] words = s.split(" ");
         for (String word : words) {
-            String lower = word.toLowerCase();
-            if (lower.contains("://") || lower.contains("http") || lower.contains("www.") || (lower.matches(".*?[a-z0-9]+\\.[a-z0-9]+\\.[a-z0-9]+.*?") && lower.matches(".*?[a-z].*?"))) {
+            if (word.matches("([a-zA-Z]+:\\/\\/)?[a-zA-Z0-9]+(\\.[a-zA-Z0-9]{2,})*\\.[a-zA-Z]{2,}(:\\d+)?(\\/[^\\s]+)*")) {
                 word = "link,";
             }
+//            else if (emotes.contains(word)) {
+//                word = " e ";
+//            }
             result += word + " ";
         }
 
@@ -579,6 +790,7 @@ public class Janna extends JPanel {
                                 , result2.getDouble("voicespeed")
                                 , result2.getDouble("voicepitch")
                                 , result2.getDouble("voicevolume")
+                                , result2.getInt("freevoice")
                         );
                     } else {
                         System.out.println("How the hell can result2 be empty, I literally just inserted the thing I was looking for: " + username);
@@ -592,6 +804,7 @@ public class Janna extends JPanel {
                             , result.getDouble("voicespeed")
                             , result.getDouble("voicepitch")
                             , result.getDouble("voicevolume")
+                            , result.getInt("freevoice")
                     );
                 }
                 users.put(currentUser.id, currentUser);
@@ -659,7 +872,7 @@ public class Janna extends JPanel {
     }
 
     public void getMods() {
-        twitch.getChat().sendMessage("virus610", "/mods");
+        twitch.getChat().sendMessage(mainchannel, "/mods");
     }
 
     public void blindlyExecuteQuery(String query) throws Exception {
@@ -668,7 +881,7 @@ public class Janna extends JPanel {
     }
 
     public static void console(String s, int level) {
-        if (level <= 99) {
+        if (level <= Janna.LOG_LEVEL) {
             chatArea.append("\n" + s);
             chatArea.setCaretPosition(chatArea.getDocument().getLength());
         }
@@ -676,6 +889,7 @@ public class Janna extends JPanel {
 
     public static void debug (String s) {
         console("[DEBUG] " + s, 7);
+        System.out.println(s);
     }
 
     public static void info (String s) {
@@ -706,7 +920,6 @@ public class Janna extends JPanel {
 
     private void readMessage(ChannelMessageEvent e) {
 
-        //info("#" + e.getChannel().getName() + ": " + e.getUser().getName() + "> " + e.getMessage());
         String name = e.getUser().getName();
         String channel = e.getChannel().getName();
         User user = getUser(name);
@@ -741,6 +954,9 @@ public class Janna extends JPanel {
         }
 
         if (canSpeak) {
+            if (false) { // TODO: Read names
+                message = user.name + ": " + message;
+            }
             voices.add(new Voice(butcher(message, user), user));
         }
         //new Speaker(message).start();
@@ -753,17 +969,17 @@ public class Janna extends JPanel {
         if (cmd.equalsIgnoreCase("no")) {
             //voices.get(0).
         } else if (cmd.equalsIgnoreCase("test"/*stfu*/)) {
-            for (String mod : twitch.getMessagingInterface().getChatters("virus610").execute().getModerators()) {
+            for (String mod : twitch.getMessagingInterface().getChatters(mainchannel).execute().getModerators()) {
                 info("Moderator: " + mod);
             }
             // TODO
         } else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
             if (setUserPref(user, "butt_stuff", "0")) {
-                twitch.getChat().sendMessage("virus610", "Okay, I won't butt you, bro.");
+                twitch.getChat().sendMessage(mainchannel, "Okay, I won't butt you, bro.");
             }
         } else if (cmd.equalsIgnoreCase("dobuttmebro")) {
             if (setUserPref(user, "butt_stuff", "1")) {
-                twitch.getChat().sendMessage("virus610", "Can't get enough of that butt.");
+                twitch.getChat().sendMessage(mainchannel, "Can't get enough of that butt.");
             }
         } else if (cmd.equalsIgnoreCase("mute")) {
             // TODO

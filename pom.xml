@@ -34,6 +34,7 @@
     </build>
 
     <repositories>
+        <!-- I forget what this one's for -->
         <repository>
             <id>jcenter</id>
             <url>https://jcenter.bintray.com/</url>
@@ -79,7 +80,7 @@
         <dependency>
             <groupId>com.github.twitch4j</groupId>
             <artifactId>twitch4j</artifactId>
-            <version>1.2.1</version>
+            <version>1.9.0</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc -->
@@ -89,6 +90,11 @@
             <version>3.34.0</version>
         </dependency>
 
+        <dependency>
+            <groupId>me.friwi</groupId>
+            <artifactId>jcefmaven</artifactId>
+            <version>95.7.14.11</version>
+        </dependency>
 
     </dependencies>
 
