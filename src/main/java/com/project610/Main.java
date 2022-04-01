@@ -20,19 +20,11 @@ public class Main {
         JFrame jf = new JFrame("Janna v0.0.3 (NOW on GitHub?)");
         jf.setMinimumSize(new Dimension(300, 300));
         jf.setSize(500,400);
-        //jf.setLayout(new FlowLayout(FlowLayout.CENTER));
 
         Janna janna= new Janna(args, jf);
         janna.setBackground(new Color(230, 230, 230));
         jf.setContentPane(janna);
         jf.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-
-        //jf.setResizable(false);
-/*        try {
-            jf.setIconImage(ImageIO.read(SpriteSwapper.class.getClassLoader().getResource("icons/appIcon.png")));
-        } catch (Exception ex) {
-            mainPanel.error("Failed to set app icon", ex);
-        }*/
         jf.setVisible(true);
 
         try {

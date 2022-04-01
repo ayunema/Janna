@@ -17,10 +17,10 @@ import java.util.List;
 import com.github.philippheuer.credentialmanager.domain.OAuth2Credential;
 import com.github.twitch4j.TwitchClient;
 import com.github.twitch4j.TwitchClientBuilder;
-import com.github.twitch4j.auth.providers.TwitchIdentityProvider;
 import com.github.twitch4j.chat.events.channel.ChannelMessageEvent;
 import com.github.twitch4j.eventsub.domain.RedemptionStatus;
 import com.github.twitch4j.helix.domain.CustomReward;
+import com.github.twitch4j.helix.domain.Moderator;
 import com.github.twitch4j.pubsub.domain.ChannelPointsRedemption;
 import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
 
@@ -35,7 +35,7 @@ import static javax.swing.BoxLayout.PAGE_AXIS;
 public class Janna extends JPanel {
 
     public static Janna instance;
-    private static final int LOG_LEVEL = 5;
+    private static final int LOG_LEVEL = 6;
     static BufferedReader inputReader = null;
     static BufferedReader channelReader = null;
     static BufferedWriter channelWriter = null;
@@ -52,12 +52,9 @@ public class Janna extends JPanel {
     public static HashMap<Integer, User> users = new HashMap<>();
     public static HashMap<String, Integer> userIds = new HashMap<>();
 
-    public static String mainchannel;
-    //public static String mainchannel_id;
     public static com.github.twitch4j.helix.domain.User mainchannel_user;
     public static String[] extraChannels;
     public static TwitchClient twitch;
-    public static TwitchIdentityProvider tip;
     private OAuth2Credential credential;
 
     public ArrayList<String> muteList = new ArrayList<>();
@@ -67,15 +64,17 @@ public class Janna extends JPanel {
     public ArrayList<String> emotes = new ArrayList<>();
 
 
+    // UI stuff
+    JFrame parent;
 
     JPanel midPane;
     public static JTextArea chatArea;
     JScrollPane chatScroll;
     JTextField inputField;
 
-    JFrame parent;
-
+    // Config stuff
     Path configPath = Paths.get("config.ini");
+    HashMap<String, String> appConfig;
 
     public Janna(String[] args, JFrame jf) {
         Janna.instance = this;
@@ -216,32 +215,24 @@ public class Janna extends JPanel {
 
     public void init() throws Exception {
 
+        appConfig = new HashMap<>();
+
         // Get login info
         try {
             List<String> config = Files.readAllLines(configPath);
             for (String s : config) {
                 s = s.trim();
                 if (s.isEmpty() || s.charAt(0) == '#') continue;
-                if (s.indexOf("username=") == 0) {
-                    Creds._username = s.split("=", 2)[1];
-                } else if (s.indexOf("oauth=") == 0) {
-                    Creds._password = s.split("=", 2)[1];
-                } else if (s.indexOf("clientid=") == 0) {
-                    Creds._clientid = s.split("=", 2)[1];
-                } else if (s.indexOf("clientsecret=") == 0) {
-                    Creds._clientsecret = s.split("=", 2)[1];
-                } else if (s.indexOf("mainchannel=") == 0) {
-                    mainchannel = s.split("=", 2)[1].toLowerCase();
-                } else if (s.indexOf("extrachannels=") == 0) {
-                    extraChannels = s.split("=", 2)[1].split(",");
-                    for (int i = 0; i < extraChannels.length; i++) {
-                        extraChannels[i] = extraChannels[i].trim().toLowerCase();
-                    }
-                }
+
+                String key = s.split("=", 2)[0];
+                String value = s.split("=", 2)[1];
+
+                appConfig.put(key, value);
             }
-            if (Creds._username.isEmpty() || Creds._password.isEmpty()) {
-                throw new Exception();
-            }
+
+            Creds._username = appConfig.get("username");
+            Creds._password = appConfig.get("oauth");
+
         } catch (Exception ex) {
             warn("Failed to load username or oauth token, please update `config.ini` with your chat credentials");
             if (!Files.exists(configPath)) {
@@ -281,13 +272,6 @@ public class Janna extends JPanel {
         );
         createUserTable.execute();
 
-        /*try {
-            blindlyExecuteQuery("ALTER TABLE user ADD COLUMN voicevolume DOUBLE DEFAULT 1");
-        } catch (Exception ex) {
-            debug("Meh: " + ex.toString());
-            // Probably already been altered
-        }*/
-
         PreparedStatement createPrefTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS pref ( "
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT"
                 + ", name VARCHAR(128) UNIQUE"
@@ -326,9 +310,11 @@ public class Janna extends JPanel {
 
         twitch.getPubSub().connect();
 
-        twitch.getChat().joinChannel(mainchannel);
-        for (String extraChannel : extraChannels) {
-            twitch.getChat().joinChannel(extraChannel);
+        joinChannel(appConfig.get("mainchannel"));
+        if (null != appConfig.get("extraChannels")) {
+            for (String extraChannel : appConfig.get("extraChannels").split(",")) {
+                joinChannel(extraChannel.toLowerCase().trim());
+            }
         }
 
         twitch.getEventManager().onEvent(ChannelMessageEvent.class, this::readMessage);
@@ -343,7 +329,7 @@ public class Janna extends JPanel {
 
 
 
-        AuthListen.getToken();
+        Auth.getToken();
 
 
 
@@ -403,39 +389,25 @@ public class Janna extends JPanel {
             error("Something broke initializing chat thread stuff", ex);
         }
         finally {
+
         }
-
-        /*primaryStage.setOnCloseRequest(new EventHandler<WindowEvent>() {
-            @Override
-            public void handle(WindowEvent event) {
-                listenThread.alive = false;
-                try {
-                    socket.shutdownInput();
-                } catch (Exception ex) {  }
-
-                try { inputReader.close(); } catch (Exception ex) {  }
-                try { channelReader.close(); } catch (Exception ex) {  }
-                try { channelWriter.close(); } catch (Exception ex) {  }
-
-                primaryStage.close();
-                Platform.exit();
-                System.exit(0);
-            }
-        });*/
     }
 
-    public void connectTwitch() {
-
+    protected void joinChannel(String channel) {
+        try {
+            twitch.getChat().joinChannel(channel);
+        } catch (Exception ex) {
+            error("Couldn't connect to channel: " + channel, ex);
+        }
     }
 
     public void postAuth() {
         try {
+            mainchannel_user = twitch.getHelix().getUsers(Creds._helixtoken, null, Arrays.asList(appConfig.get("mainchannel"))).execute().getUsers().get(0);
+
 
             twitch.getPubSub().listenForChannelPointsRedemptionEvents(credential, mainchannel_user.getId());
             twitch.getEventManager().onEvent(RewardRedeemedEvent.class, this::rewardRedeemed);
-
-            mainchannel_user = twitch.getHelix().getUsers(Creds._helixtoken, null, Arrays.asList(mainchannel)).execute().getUsers().get(0);
-            //mainchannel_id = mainchannel_user.getId();
 
             setupCustomRewards();
 
@@ -872,7 +844,8 @@ public class Janna extends JPanel {
     }
 
     public void getMods() {
-        twitch.getChat().sendMessage(mainchannel, "/mods");
+        // TODO: Actually test this
+        twitch.getHelix().getModerators(Creds._helixtoken, mainchannel_user.getId(), null, null, 1000);
     }
 
     public void blindlyExecuteQuery(String query) throws Exception {
@@ -969,17 +942,21 @@ public class Janna extends JPanel {
         if (cmd.equalsIgnoreCase("no")) {
             //voices.get(0).
         } else if (cmd.equalsIgnoreCase("test"/*stfu*/)) {
-            for (String mod : twitch.getMessagingInterface().getChatters(mainchannel).execute().getModerators()) {
+            for (String mod : twitch.getMessagingInterface().getChatters(appConfig.get("mainchannel")).execute().getModerators()) {
                 info("Moderator: " + mod);
+            }
+            info("Or...");
+            for (Moderator mod : twitch.getHelix().getModerators(Creds._helixtoken, mainchannel_user.getId(), null, null, 100).execute().getModerators()) {
+                info("Helix mod: " + mod.getUserName());
             }
             // TODO
         } else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
             if (setUserPref(user, "butt_stuff", "0")) {
-                twitch.getChat().sendMessage(mainchannel, "Okay, I won't butt you, bro.");
+                twitch.getChat().sendMessage(appConfig.get("mainchannel"), "Okay, I won't butt you, bro.");
             }
         } else if (cmd.equalsIgnoreCase("dobuttmebro")) {
             if (setUserPref(user, "butt_stuff", "1")) {
-                twitch.getChat().sendMessage(mainchannel, "Can't get enough of that butt.");
+                twitch.getChat().sendMessage(appConfig.get("mainchannel"), "Can't get enough of that butt.");
             }
         } else if (cmd.equalsIgnoreCase("mute")) {
             // TODO

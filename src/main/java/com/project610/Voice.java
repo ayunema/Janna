@@ -19,15 +19,11 @@ import java.nio.file.Paths;
 
 import static com.project610.Janna.error;
 
-/**
- * Google Cloud TextToSpeech API sample application. Example usage: mvn package exec:java
- * -Dexec.mainClass='com.example.texttospeech.QuickstartSample'
- */
 public class Voice {
 
     public MediaPlayer mp;
     PlaySound sound;
-    /** Demonstrates using the Text-to-Speech API. */
+
     public Voice(String message, User user) {
         // Make temp dir if DNE
         File dir = new File("temp");

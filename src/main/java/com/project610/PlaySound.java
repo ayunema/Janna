@@ -15,7 +15,6 @@ public class PlaySound implements Runnable {
     AudioInputStream stream;
 
     public PlaySound(String file) throws Exception {
-        // we have to create InputStream by ourselves
         InputStream is = new FileInputStream(file);
         soundFile = new BufferedInputStream(is);
     }

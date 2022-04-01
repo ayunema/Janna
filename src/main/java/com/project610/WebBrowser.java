@@ -138,13 +138,10 @@ public class WebBrowser extends JFrame {
             public void onAddressChange(CefBrowser browser, CefFrame frame, String url) {
                 address_.setText(url);
 
+                // @virus610: Probably the only thing I'm gonna mess with here
                 System.out.println("Loading URL: " + url);
                 if (url.contains("https://www.project610.com/janna/auth.html")) {
-                    System.out.println("This is it!");
                     String token = url.substring(url.indexOf("#access_token=")+14,url.indexOf("&"));
-                    System.out.println("Token is: " + token);
-                    System.out.println();
-
                     Janna.instance.saveAuthToken(token);
                 }
             }
