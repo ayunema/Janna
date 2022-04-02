@@ -42,12 +42,13 @@ public class Janna extends JPanel {
 
     public Socket socket = null;
     public Connection sqlCon;
-    //public static TextToSpeech tts = new TextToSpeech();
+    public static ResultSet EMPTY_RESULT_SET;
 
     public static ArrayList<String> messages = new ArrayList<>();
     public static ArrayList<Voice> voices = new ArrayList<>();
     public static ArrayList<String> voiceNames = new ArrayList<>();
     public static String defaultVoice = "en-US-Standard-B";
+    public static SpeechQueue speechQueue;
 
     public static HashMap<Integer, User> users = new HashMap<>();
     public static HashMap<String, Integer> userIds = new HashMap<>();
@@ -177,40 +178,6 @@ public class Janna extends JPanel {
         add (new JButton("farts"));
         add (new JButton("and butts"));
 
-/*
-        VBox vbox = new VBox();
-
-        // Big chat box
-        HBox hbox1 = new HBox();
-        chatArea = new TextArea("poo poo poo \npoo poo <br/>poop");
-        chatArea.setPrefWidth(500);
-        chatArea.setPrefHeight(400);
-        chatArea.setWrapText(true);
-        chatArea.setEditable(false);
-
-        hbox1.getChildren().add(chatArea);
-
-        Button butt = new Button("Ma butt");
-        hbox1.getChildren().add(butt);
-
-        Circle c = new Circle(0, 0, 25, Color.GREEN);
-        c.setFill(Color.BLUE);
-
-
-        HBox hbox2 = new HBox();
-
-        TextField inputField = new TextField("doop");
-        inputField.setPrefWidth(500);
-
-        hbox2.getChildren().addAll(inputField, c);
-
-        vbox.getChildren().addAll(hbox1,hbox2);
-
-
-        //primaryStage.initStyle(StageStyle.TRANSPARENT);
-        //scene.setFill(Color.TRANSPARENT);
-
-*/
     }
 
     public void init() throws Exception {
@@ -251,14 +218,19 @@ public class Janna extends JPanel {
             }
         }
 
+        // SpeechQueue started; Will ready up and play voices as they come
+        //  if allowConsecutive is true, different people can 'talk' at the same time
+        speechQueue = new SpeechQueue(true);
+        new Thread(speechQueue).start();
 
-
-
-
+        // DB stuff; Maybe dumb to try creating tables every time, but eh. Think of this as a lazy 'liquibase' thing
         SQLiteDataSource sqlDataSource = new SQLiteDataSource();
         sqlDataSource.setUrl("jdbc:sqlite:janna.sqlite");
 
         sqlCon = sqlDataSource.getConnection();
+        PreparedStatement emptyStatement = sqlCon.prepareStatement("SELECT 1 WHERE false");
+        emptyStatement.execute();
+        EMPTY_RESULT_SET = emptyStatement.getResultSet();
 
         PreparedStatement createUserTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS user ( "
                 + " id INTEGER PRIMARY KEY AUTOINCREMENT "
@@ -296,6 +268,7 @@ public class Janna extends JPanel {
         );
         createAuthTable.execute();
 
+        // Get credentials for logging into chat
         credential = new OAuth2Credential("twitch", Creds._password);
 
         twitch = TwitchClientBuilder.builder()
@@ -310,29 +283,20 @@ public class Janna extends JPanel {
 
         twitch.getPubSub().connect();
 
+        // Join channels
         joinChannel(appConfig.get("mainchannel"));
-        if (null != appConfig.get("extraChannels")) {
-            for (String extraChannel : appConfig.get("extraChannels").split(",")) {
+        if (null != appConfig.get("extrachannels")) {
+            for (String extraChannel : appConfig.get("extrachannels").split(",")) {
                 joinChannel(extraChannel.toLowerCase().trim());
             }
         }
 
         twitch.getEventManager().onEvent(ChannelMessageEvent.class, this::readMessage);
-        //twitch.getChat().sendMessage("virus610", "Butt.");
 
-        /*KrakenUserList resultList = twitch.getKraken().getUsersByLogin(Arrays.asList(mainchannel)).execute(); // 28491996
-        mainchannel_id = resultList.getUsers().get(0).getId();
-        KrakenUser ku = resultList.getUsers().get(0);
-        System.out.println("user: " + ku.getDisplayName() + " / " + ku.getId());*/
-
-
-
-
-
+        // Get Helix auth token (With Kraken api dead, this is really critical)
         Auth.getToken();
 
-
-
+        // Add supported voices - TODO: Move to config.ini or something
         voiceNames.add("en-AU-Standard-A");
         voiceNames.add("en-AU-Standard-C");
         voiceNames.add("en-AU-Standard-B");
@@ -355,44 +319,20 @@ public class Janna extends JPanel {
         voiceNames.add("en-US-Standard-I");
         voiceNames.add("en-US-Standard-J");
 
+        // TODO: This obviously shouldn't be hardcoded. Work into a /mute command and store in DB
         muteList.add("ircbot610");
         muteList.add("buttsbot");
         muteList.add("saltlogic");
         muteList.add("streamlabs");
         muteList.add("streamelements");
 
-        long ticks = 0;
-
-
-
-        try {
-            inputReader = new BufferedReader(new InputStreamReader(System.in));
-
-            //Socket socket = new Socket("irc.chat.twitch.tv", 6667);
-            socket = new Socket("irc.chat.twitch.tv", 6667);
-            socket.setKeepAlive(true);
-
-
-            channelReader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            channelWriter = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-
-            //listenThread = new ListenThread(channelReader, channelWriter, this);
-            //listenThread.start();
-
-            // Bad programming practice
-            Thread.sleep(1000);
-
-            new Voice("Is Google text to speech working and stuff?", null);
-            chat("Beware I live");
-
-        } catch (Exception ex) {
-            error("Something broke initializing chat thread stuff", ex);
-        }
-        finally {
-
-        }
+        // Speech/text to verify that Janna is alive and well (Hopefully!)
+        // TODO: Make 'initialized' phrase configurable
+        new Voice("Is Google text to speech working and stuff?", null);
+        info("Beware I live");
     }
 
+    // Yeah
     protected void joinChannel(String channel) {
         try {
             twitch.getChat().joinChannel(channel);
@@ -401,22 +341,24 @@ public class Janna extends JPanel {
         }
     }
 
+    // Runs after authentication is completed; Can't do Helix API stuff until that's been done
     public void postAuth() {
         try {
             mainchannel_user = twitch.getHelix().getUsers(Creds._helixtoken, null, Arrays.asList(appConfig.get("mainchannel"))).execute().getUsers().get(0);
-
 
             twitch.getPubSub().listenForChannelPointsRedemptionEvents(credential, mainchannel_user.getId());
             twitch.getEventManager().onEvent(RewardRedeemedEvent.class, this::rewardRedeemed);
 
             setupCustomRewards();
-
         }
         catch (Exception ex) {
             error("Error doing postAuth stuff", ex);
         }
     }
 
+    // Twitch won't let a bot mark rewards as Redeemed, Canceled, etc. unless the bot made the rewards.
+    // TODO: Store titles (Which are used for redemption-handling code) in a HashMap for consistency's sake
+    // TODO-maybe: Make this configurable outside the code
     private void setupCustomRewards() {
 
         generateTTSReward(
@@ -474,6 +416,8 @@ public class Janna extends JPanel {
         );
     }
 
+    // Upload the reward to Twitch
+    // TODO: More elegant exception handling, and probably check if it exists before uploading (Sorta the same thing)
     private void uploadCustomReward(CustomReward reward) {
         try {
             twitch.getHelix().createCustomReward(Creds._helixtoken, mainchannel_user.getId(), reward).execute();
@@ -482,6 +426,8 @@ public class Janna extends JPanel {
         }
     }
 
+    // Generate a TTS-specific reward. If no modification is desired (eg: From the generateSimplifiedCustomReward root)
+    //  then set uploadImmediately=true to just fire and forget
     private CustomReward generateTTSReward (String title, String prompt, int cost, String backgroundColor, boolean inputRequired, boolean uploadImmediately) {
         CustomReward reward = generateSimplifiedCustomReward()
                 .title(title)
@@ -498,6 +444,7 @@ public class Janna extends JPanel {
         return reward;
     }
 
+    // The CustomRewardBuilder has a lot of params that I don't much care about, so this auto-sets some stuff
     private CustomReward.CustomRewardBuilder generateSimplifiedCustomReward() {
         return CustomReward.builder()
 
@@ -516,6 +463,7 @@ public class Janna extends JPanel {
                 .id(UUID.randomUUID().toString());
     }
 
+    // Handle messages/commands typed into the bot UI - Currently not read out loud, but this could be configurable
     private void sendChat() {
         String message = inputField.getText();
         inputField.setText("");
@@ -538,6 +486,7 @@ public class Janna extends JPanel {
         }
     }
 
+    // Handle redemptions
     void rewardRedeemed(RewardRedeemedEvent event) {
         ChannelPointsRedemption redemption = event.getRedemption();
         String username = redemption.getUser().getDisplayName();
@@ -596,6 +545,8 @@ public class Janna extends JPanel {
         else if (reward.equalsIgnoreCase("TTS: Set my voice accent")) {
             redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), false);
         }
+        // The way this is intended to work is: New people get 1 'free' accent change, subsequent changes are
+        //  considerably more expensive, to keep people from confusing the streamer with constant significant changes
         else if (reward.equalsIgnoreCase("*NEWCOMERS ONLY* TTS: Set my voice accent")) {
             if (currentUser.freeVoice > 0) {
                 redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), true);
@@ -610,6 +561,7 @@ public class Janna extends JPanel {
             redeemed = -1;
         }
 
+        // Auto-mark redeemed/canceled for stuff that's been handled
         if (redeemed != -1) {
             Collection<String> redemption_ids = new ArrayList<>();
             redemption_ids.add(redemption.getId());
@@ -620,24 +572,10 @@ public class Janna extends JPanel {
                 redemption.setStatus("CANCELED");
                 twitch.getHelix().updateRedemptionStatus(Creds._helixtoken, mainchannel_user.getId(), redemption.getReward().getId(), redemption_ids, RedemptionStatus.CANCELED).execute();
             }
-
-            /*try {
-                twitch.getHelix().cha
-                String urlString = "https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions"
-                        + "?broadcaster_id=" + oauth // "0123456789"
-                        + "&reward_id=" + redemption.getReward().getId() // "<UUID>"
-                        + "&id=" + ""; // "<UUID>";
-                URL url = new URL(urlString);
-            } catch (Exception ex) {
-                error("Failed to update redemption status!", ex);
-            }*/
         }
-
-
-
-        //System.out.println(event.toString());
     }
 
+    // Change accent - Could probably tie the speed/pitch into this later as well. TODO
     public int changeUserVoice(User currentUser, String input, boolean freebie) {
         if (voiceNames.contains(input)) {
             if (!currentUser.voiceName.equalsIgnoreCase(input)) {
@@ -654,6 +592,7 @@ public class Janna extends JPanel {
         return 0;
     }
 
+    // Write updated user settings to DB
     public void saveUser(User user) {
         try {
             PreparedStatement update = sqlCon.prepareStatement("UPDATE user SET"
@@ -676,34 +615,19 @@ public class Janna extends JPanel {
         }
     }
 
-    public static void send(String s) {
-        try {
-            channelWriter.write(s);
-            channelWriter.newLine();
-            channelWriter.flush();
-        } catch (Exception ex) {
-            if (s.indexOf("PASS ") != 0) {
-                error("Failed to send: " + s, ex);
-            } else {
-                error("???", ex);
-            }
-        }
-    }
-
+    // Send a message to Twitch
     public static void sendMessage(String s) {
         for (String channel : twitch.getChat().getChannels()) {
             sendMessage(channel, s);
         }
     }
 
+    // Send a message to a specific channel on Twitch
     public static void sendMessage(String channel, String s) {
         twitch.getChat().sendMessage(channel, s);
     }
 
-    public static void writeMessage(String name, String message) {
-
-    }
-
+    // Screw around with the text of a message before having it read aloud (Anti-spam measures will go here)
     public static String butcher(String s, User user) {
         String result = "";
         s = s.toLowerCase();
@@ -712,17 +636,46 @@ public class Janna extends JPanel {
             if (word.matches("([a-zA-Z]+:\\/\\/)?[a-zA-Z0-9]+(\\.[a-zA-Z0-9]{2,})*\\.[a-zA-Z]{2,}(:\\d+)?(\\/[^\\s]+)*")) {
                 word = "link,";
             }
-//            else if (emotes.contains(word)) {
-//                word = " e ";
-//            }
             result += word + " ";
         }
 
-
+        // This is super immature. 3% of messages will end with "But enough about my butt", because it's funny.
+        // Chatters can opt out of this with the command !dontbuttmebro
+        // TODO: Make configurable for people who aren't as childish as me
         if (Math.random() > 0.97 && !"0".equals(user.prefs.get("butt_stuff"))) {
-            result += ". But enough about my butt.";
+            result += " But enough about my butt.";
         }
         return result;
+    }
+
+    private ResultSet db_getUser(String username) {
+        try {
+            PreparedStatement select = sqlCon.prepareStatement("SELECT * FROM user WHERE username LIKE ? LIMIT 1");
+            select.setString(1, username);
+            select.execute();
+
+            return select.getResultSet();
+
+        } catch (Exception ex) {
+            return EMPTY_RESULT_SET;
+        }
+    }
+
+    private User generateNewUser(ResultSet result) {
+        try {
+            return new User(
+                    this
+                    , result.getInt("id")
+                    , result.getString("username")
+                    , result.getString("voicename")
+                    , result.getDouble("voicespeed")
+                    , result.getDouble("voicepitch")
+                    , result.getDouble("voicevolume")
+                    , result.getInt("freevoice")
+            );
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     public User getUser(String username) {
@@ -736,11 +689,8 @@ public class Janna extends JPanel {
                 if (null == sqlCon) {
                     return null;
                 }
-                PreparedStatement select = sqlCon.prepareStatement("SELECT * FROM user WHERE username LIKE ? LIMIT 1");
-                select.setString(1, username);
-                select.execute();
 
-                ResultSet result = select.getResultSet();
+                ResultSet result = db_getUser(username);
                 // If user DNE in DB
                 if (!result.next()) {
                     System.out.println("Adding user to DB: " + username);
@@ -749,35 +699,15 @@ public class Janna extends JPanel {
                     insert.executeUpdate();
                     insert.close();
 
-                    PreparedStatement select2 = sqlCon.prepareStatement("SELECT * FROM user WHERE username LIKE ? LIMIT 1");
-                    select2.setString(1, username);
-                    select2.execute();
-                    ResultSet result2 = select2.getResultSet();
+                    ResultSet result2 = db_getUser(username);
                     if (result2.next()) {
-                        currentUser = new User(
-                                this
-                                , result2.getInt("id")
-                                , result2.getString("username")
-                                , result2.getString("voicename")
-                                , result2.getDouble("voicespeed")
-                                , result2.getDouble("voicepitch")
-                                , result2.getDouble("voicevolume")
-                                , result2.getInt("freevoice")
-                        );
+                        currentUser = generateNewUser(result2);
                     } else {
-                        System.out.println("How the hell can result2 be empty, I literally just inserted the thing I was looking for: " + username);
+                        // This probably isn't an issue anymore
+                        warn("How can result2 be empty? I literally just inserted the thing I was looking for: " + username);
                     }
                 } else {
-                    currentUser = new User(
-                            this
-                            , result.getInt("id")
-                            , result.getString("username")
-                            , result.getString("voicename")
-                            , result.getDouble("voicespeed")
-                            , result.getDouble("voicepitch")
-                            , result.getDouble("voicevolume")
-                            , result.getInt("freevoice")
-                    );
+                    currentUser = generateNewUser(result);
                 }
                 users.put(currentUser.id, currentUser);
                 userIds.put(currentUser.name, currentUser.id);
@@ -844,7 +774,7 @@ public class Janna extends JPanel {
     }
 
     public void getMods() {
-        // TODO: Actually test this
+        // TODO: Actually finish this
         twitch.getHelix().getModerators(Creds._helixtoken, mainchannel_user.getId(), null, null, 1000);
     }
 
@@ -853,6 +783,7 @@ public class Janna extends JPanel {
         prep.execute();
     }
 
+    // Logging stuff, should probably move this into its own class
     public static void console(String s, int level) {
         if (level <= Janna.LOG_LEVEL) {
             chatArea.append("\n" + s);
@@ -891,6 +822,7 @@ public class Janna extends JPanel {
         }
     }
 
+    // Incoming messages handled here
     private void readMessage(ChannelMessageEvent e) {
 
         String name = e.getUser().getName();
@@ -935,13 +867,14 @@ public class Janna extends JPanel {
         //new Speaker(message).start();
     }
 
+    // Incoming messages starting with `!` handled here
     private void parseCommand(String message, User user) {
         message = message.substring(1);
         String[] split = message.split(" ");
         String cmd = split[0];
         if (cmd.equalsIgnoreCase("no")) {
             //voices.get(0).
-        } else if (cmd.equalsIgnoreCase("test"/*stfu*/)) {
+        } else if (cmd.equalsIgnoreCase("test")) {
             for (String mod : twitch.getMessagingInterface().getChatters(appConfig.get("mainchannel")).execute().getModerators()) {
                 info("Moderator: " + mod);
             }

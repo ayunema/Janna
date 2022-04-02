@@ -33,7 +33,5 @@ public class Main {
             System.err.println("Failed to init Janna");
             ex.printStackTrace( );
         }
-
-        //janna.loadSprites();
     }
 }

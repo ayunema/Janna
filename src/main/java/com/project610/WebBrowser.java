@@ -18,8 +18,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.IOException;
-import java.sql.PreparedStatement;
 
+// Almost entirely sample code, just so I can auth with Twitch.
+// Had trouble finding something usable that I could just point Maven at.
 /**
  * This is a simple example application using JCEF.
  * It displays a JFrame with a JTextField at its top and a CefBrowser in its
@@ -138,7 +139,7 @@ public class WebBrowser extends JFrame {
             public void onAddressChange(CefBrowser browser, CefFrame frame, String url) {
                 address_.setText(url);
 
-                // @virus610: Probably the only thing I'm gonna mess with here
+                // Probably the only thing I'm gonna mess with here -@virus610
                 System.out.println("Loading URL: " + url);
                 if (url.contains("https://www.project610.com/janna/auth.html")) {
                     String token = url.substring(url.indexOf("#access_token=")+14,url.indexOf("&"));

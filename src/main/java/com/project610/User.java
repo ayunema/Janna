@@ -13,14 +13,14 @@ public class User {
     Janna janna;
     HashMap<String, String> prefs;
 
-
     public User (Janna janna, int id, String name, String voiceName, double voiceSpeed, double voicePitch, double voiceVolume, int freeVoice) {
         this.id = id;
         this.name = name;
         this.voiceName = voiceName;
         this.voiceSpeed = voiceSpeed;
         this.voicePitch = voicePitch;
-        this.janna = janna;
+        this.janna = janna; // Dunno why I did this instead of making a static instance to start, or just
+                            //  doing static everything. TODO: Clean this up eventually
         this.voiceVolume = voiceVolume;
         this.freeVoice = freeVoice;
 

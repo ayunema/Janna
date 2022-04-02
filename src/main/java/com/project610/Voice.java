@@ -17,7 +17,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
-import static com.project610.Janna.error;
+import static com.project610.Janna.*;
 
 public class Voice {
 
@@ -27,16 +27,15 @@ public class Voice {
     public Voice(String message, User user) {
         // Make temp dir if DNE
         File dir = new File("temp");
-        System.out.println("dir=temp");
         if (!dir.exists()) {
             dir.mkdirs();
             System.out.println("Made dir");
         }
 
-        String filename = "temp/output-" + System.currentTimeMillis() + "-" + (int)(Math.random()*1000) + ".wav";
-        filename = filename.replace('/', File.separatorChar);
+        // Generate a unique-enough filename
+        String filename = "temp"+File.separatorChar+"output-" + System.currentTimeMillis() + "-" + (int)(Math.random()*1000) + ".wav";
 
-
+        // Initiate default voice (In case of system-messages, or weird bugs), sub in user-voice if exists
         String voiceName = Janna.defaultVoice;
         double pitch = 0;
         double speed = 0;
@@ -46,9 +45,10 @@ public class Voice {
             pitch = user.voicePitch;
             speed = user.voiceSpeed;
         } else {
-            System.out.println("User is NULL! Using default values");
+            debug("User is NULL! Using default values");
         }
 
+        // This is a buncha google sample code, with bits and bobs injected afterward
         // Instantiates a client
         try (TextToSpeechClient textToSpeechClient = TextToSpeechClient.create()) {
             // Set the text input to be synthesized
@@ -81,26 +81,22 @@ public class Voice {
 
             // Write the response to the output file.
             try (OutputStream out = new FileOutputStream(filename)) {
-                System.out.println("About to write file");
                 out.write(audioContents.toByteArray());
                 out.flush();
                 out.close();
-                System.out.println("File written");
-
-                sound = new PlaySound(filename);
-                sound.run();
-                System.out.println("Sound played");
-                Files.deleteIfExists(Paths.get(filename));
-                System.out.println("Deleted");
             } catch (Exception ex) {
-                error("Voice screwed up: " + ex.toString(), ex);
+                error("Messed up writing audio file: " + ex.toString(), ex);
             }
+
+            // Sound file created, send it to the speechQueue for... Queuing.
+            sound = new PlaySound(filename, (null == user) ? " " : user.name);
+            speechQueue.sounds.add(sound);
         } catch (Exception ex) {
             error("TTS screwed up: " + ex.toString(), ex);
         }
     }
 
     public void stop() {
-        //sound.
+        // TODO: Dunno if this method will belong here
     }
 }
