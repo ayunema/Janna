@@ -26,10 +26,8 @@ public class SpeechQueue implements Runnable {
             try {
                 for (int i = 0; i < currentlyPlaying.size(); i++) {
                     if (!currentlyPlaying.get(i).busy) {
-                        System.out.println(System.currentTimeMillis() + ": removing " + i);
                         currentlyPlaying.get(i).cleanup = true;
                         currentlyPlaying.remove(i--);
-                        System.out.println(System.currentTimeMillis() + ": removed");
                     }
                 }
             } catch (ConcurrentModificationException ex) {
@@ -70,6 +68,9 @@ public class SpeechQueue implements Runnable {
             }
             return false;
         } catch (ConcurrentModificationException ex) {
+            return true;
+        } catch (IndexOutOfBoundsException ex) {
+            // SpeechQueue likely purged
             return true;
         }
     }

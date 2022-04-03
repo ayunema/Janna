@@ -1,15 +1,11 @@
 package com.project610;
 
 // Imports the Google Cloud client library
-import com.google.cloud.texttospeech.v1.AudioConfig;
-import com.google.cloud.texttospeech.v1.AudioEncoding;
-import com.google.cloud.texttospeech.v1.SynthesisInput;
-import com.google.cloud.texttospeech.v1.SynthesizeSpeechResponse;
-import com.google.cloud.texttospeech.v1.TextToSpeechClient;
-import com.google.cloud.texttospeech.v1.VoiceSelectionParams;
+import com.google.cloud.texttospeech.v1.*;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.UnknownFieldSet;
 import javafx.scene.media.MediaPlayer;
+import org.apache.commons.lang.StringEscapeUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -52,7 +48,8 @@ public class Voice {
         // Instantiates a client
         try (TextToSpeechClient textToSpeechClient = TextToSpeechClient.create()) {
             // Set the text input to be synthesized
-            SynthesisInput input = SynthesisInput.newBuilder().setText(message).build();
+            //SynthesisInput input = SynthesisInput.newBuilder().setText(message).build();
+            SynthesisInput input = SynthesisInput.newBuilder().setSsml(message).build();
 
             // Build the voice request, select the language code ("en-US") and the ssml voice gender
             // ("neutral")
@@ -75,6 +72,8 @@ public class Voice {
             // audio file type
             SynthesizeSpeechResponse response =
                     textToSpeechClient.synthesizeSpeech(input, voice, audioConfig);
+//            SynthesizeSpeechResponse response =
+//                    textToSpeechClient.synthesizeSpeech(input, voice, audioConfig);
 
             // Get the audio contents from the response
             ByteString audioContents = response.getAudioContent();
@@ -97,6 +96,7 @@ public class Voice {
     }
 
     public void stop() {
-        // TODO: Dunno if this method will belong here
+        sound.clip.stop();
+        sound.busy=false;
     }
 }

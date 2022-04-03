@@ -50,7 +50,7 @@ public class PlaySound implements Runnable {
             debug(System.currentTimeMillis() + ": start");
             clip.start();
             debug(System.currentTimeMillis() + ": wait");
-            while (clip.getMicrosecondLength() != clip.getMicrosecondPosition()) {
+            while (clip.getMicrosecondLength() != clip.getMicrosecondPosition() && busy) {
                 Thread.sleep(1);
             }
 

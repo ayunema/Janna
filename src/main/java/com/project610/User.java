@@ -12,6 +12,7 @@ public class User {
     public int freeVoice;
     Janna janna;
     HashMap<String, String> prefs;
+    HashMap<String, String> roles;
 
     public User (Janna janna, int id, String name, String voiceName, double voiceSpeed, double voicePitch, double voiceVolume, int freeVoice) {
         this.id = id;
@@ -25,6 +26,7 @@ public class User {
         this.freeVoice = freeVoice;
 
         prefs = getPrefs();
+        roles = new HashMap<>();
     }
 
     public void save() {

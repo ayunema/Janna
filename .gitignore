@@ -35,5 +35,7 @@ temp/
 *.sqlite
 *.iml
 config.ini
+replacelist.txt
+sfx.txt
 
 jcef-bundle/

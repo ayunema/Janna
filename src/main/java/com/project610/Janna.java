@@ -25,6 +25,7 @@ import com.github.twitch4j.pubsub.domain.ChannelPointsRedemption;
 import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
 
 import com.netflix.hystrix.exception.HystrixRuntimeException;
+import org.apache.commons.lang.StringUtils;
 import org.sqlite.SQLiteDataSource;
 
 import javax.swing.*;
@@ -62,7 +63,6 @@ public class Janna extends JPanel {
     public ArrayList<String> whitelist = new ArrayList<>();
     public boolean whitelistOnly = false;
 
-    public ArrayList<String> emotes = new ArrayList<>();
 
 
     // UI stuff
@@ -76,6 +76,12 @@ public class Janna extends JPanel {
     // Config stuff
     Path configPath = Paths.get("config.ini");
     HashMap<String, String> appConfig;
+
+    Path replaceListPath = Paths.get("replacelist.txt");
+    public static HashMap<String,String> replaceList = new HashMap<>();
+
+    Path sfxPath = Paths.get("sfx.txt");
+    public static HashMap<String, String> sfxList = new HashMap<>();
 
     public Janna(String[] args, JFrame jf) {
         Janna.instance = this;
@@ -184,39 +190,11 @@ public class Janna extends JPanel {
 
         appConfig = new HashMap<>();
 
-        // Get login info
-        try {
-            List<String> config = Files.readAllLines(configPath);
-            for (String s : config) {
-                s = s.trim();
-                if (s.isEmpty() || s.charAt(0) == '#') continue;
+        // Get a buncha app settings
+        readAppConfig();
+        readReplaceList();
+        readSfxList();
 
-                String key = s.split("=", 2)[0];
-                String value = s.split("=", 2)[1];
-
-                appConfig.put(key, value);
-            }
-
-            Creds._username = appConfig.get("username");
-            Creds._password = appConfig.get("oauth");
-
-        } catch (Exception ex) {
-            warn("Failed to load username or oauth token, please update `config.ini` with your chat credentials");
-            if (!Files.exists(configPath)) {
-                Files.write(configPath, (
-                        "# Login credentials go here. You must not use your password, but an OAUTH token,\n" +
-                        "# which you can get from here: https://twitchapps.com/tmi/\n" +
-                        "username=\n" +
-                        "oauth=\n" +
-                        "\n" +
-                        "# Primary channel to listen for chat (And handle channel point redemptions)\n" +
-                        "mainchannel=\n" +
-                        "\n" +
-                        "# This is kinda wonky right now. It'll read out stuff from other channels, and any messages sent by the bot will be sent to these channels as well\n" +
-                        "# (Comma separated list, eg: channel6,channel1,channel0)\n" +
-                        "extrachannels=\n").getBytes());
-            }
-        }
 
         // SpeechQueue started; Will ready up and play voices as they come
         //  if allowConsecutive is true, different people can 'talk' at the same time
@@ -330,6 +308,93 @@ public class Janna extends JPanel {
         // TODO: Make 'initialized' phrase configurable
         new Voice("Is Google text to speech working and stuff?", null);
         info("Beware I live");
+    }
+
+    private void readSfxList() throws Exception {
+        try {
+            List<String> list = Files.readAllLines(sfxPath);
+            for (String s : list) {
+                s = s.trim();
+                if (s.isEmpty() || s.charAt(0) == '#') continue;
+
+                String key = s.split("=", 2)[0];
+                String value = s.split("=", 2)[1];
+
+                sfxList.put(key, value);
+            }
+
+        } catch (Exception ex) {
+            warn("Failed to read sfxlist.txt");
+            if (!Files.exists(sfxPath)) {
+                Files.write(sfxPath, (
+                        "# Make sounds out of words! (Supports WAV, MP3, OGG up to 5MB)\n" +
+                        "# Example: `fart=https://www.project610.com/files/fart.wav` !\n" +
+                        "fart=https://www.project610.com/files/fart.wav\n").getBytes());
+            }
+        }
+    }
+
+    private void readReplaceList() throws Exception {
+        try {
+            List<String> list = Files.readAllLines(replaceListPath);
+            for (String s : list) {
+                s = s.trim();
+                if (s.isEmpty() || s.charAt(0) == '#') continue;
+
+                String key = s.split("=", 2)[0];
+                String value = s.split("=", 2)[1];
+
+                replaceList.put(key, value);
+            }
+
+        } catch (Exception ex) {
+            warn("Failed to read replacelist.txt");
+            if (!Files.exists(replaceListPath)) {
+                Files.write(replaceListPath, (
+                        "# Words in chat that you write here, will be replace by whatever you want!\n" +
+                        "# Example: `dollar=loonie` will make Janna read the word `dollar` as `loonie`!\n" +
+                        "virus610=virus six ten\n\n" +
+
+                        "# You can even replace using regex!\n" +
+                        "# Example: `(cat|dog)=friendo`\n" +
+                        "([a-zA-Z]+:\\/\\/)?[a-zA-Z0-9]+(\\.[a-zA-Z0-9]{2,})*\\.[a-zA-Z]{2,}(:\\d+)?(\\/[^\\s]+)*=link").getBytes());
+            }
+        }
+    }
+
+    private void readAppConfig() throws Exception {
+        try {
+            List<String> config = Files.readAllLines(configPath);
+            for (String s : config) {
+                s = s.trim();
+                if (s.isEmpty() || s.charAt(0) == '#') continue;
+
+                String key = s.split("=", 2)[0];
+                String value = s.split("=", 2)[1];
+
+                appConfig.put(key, value);
+            }
+
+            Creds._username = appConfig.get("username");
+            Creds._password = appConfig.get("oauth");
+
+        } catch (Exception ex) {
+            warn("Failed to load username or oauth token, please update `config.ini` with your chat credentials");
+            if (!Files.exists(configPath)) {
+                Files.write(configPath, (
+                        "# Login credentials go here. You must not use your password, but an OAUTH token,\n" +
+                                "# which you can get from here: https://twitchapps.com/tmi/\n" +
+                                "username=\n" +
+                                "oauth=\n" +
+                                "\n" +
+                                "# Primary channel to listen for chat (And handle channel point redemptions)\n" +
+                                "mainchannel=\n" +
+                                "\n" +
+                                "# This is kinda wonky right now. It'll read out stuff from other channels, and any messages sent by the bot will be sent to these channels as well\n" +
+                                "# (Comma separated list, eg: channel6,channel1,channel0)\n" +
+                                "extrachannels=\n").getBytes());
+            }
+        }
     }
 
     // Yeah
@@ -480,6 +545,7 @@ public class Janna extends JPanel {
                 String channel = split[1].replace("#","");
                 twitch.getChat().joinChannel(channel);
             }
+
         } else {
             sendMessage(message);
             chat(Creds._username + ": " + message);
@@ -567,10 +633,12 @@ public class Janna extends JPanel {
             redemption_ids.add(redemption.getId());
             if (redeemed == 1) {
                 redemption.setStatus("FULFILLED");
-                twitch.getHelix().updateRedemptionStatus(Creds._helixtoken, mainchannel_user.getId(), redemption.getReward().getId(), redemption_ids, RedemptionStatus.FULFILLED).execute();
+                twitch.getHelix().updateRedemptionStatus(Creds._helixtoken, mainchannel_user.getId(),
+                        redemption.getReward().getId(), redemption_ids, RedemptionStatus.FULFILLED).execute();
             } else {
                 redemption.setStatus("CANCELED");
-                twitch.getHelix().updateRedemptionStatus(Creds._helixtoken, mainchannel_user.getId(), redemption.getReward().getId(), redemption_ids, RedemptionStatus.CANCELED).execute();
+                twitch.getHelix().updateRedemptionStatus(Creds._helixtoken, mainchannel_user.getId(),
+                        redemption.getReward().getId(), redemption_ids, RedemptionStatus.CANCELED).execute();
             }
         }
     }
@@ -631,10 +699,55 @@ public class Janna extends JPanel {
     public static String butcher(String s, User user) {
         String result = "";
         s = s.toLowerCase();
+
+
+        for (String find : replaceList.keySet()) {
+            String replace = replaceList.get(find);
+            s = s.replaceAll(find, replace);
+        }
+
+        int tempWordCount = 0;
+        String tempWord = "";
         String[] words = s.split(" ");
+
+        // Anti-spam and anti-annoyance measures
         for (String word : words) {
-            if (word.matches("([a-zA-Z]+:\\/\\/)?[a-zA-Z0-9]+(\\.[a-zA-Z0-9]{2,})*\\.[a-zA-Z]{2,}(:\\d+)?(\\/[^\\s]+)*")) {
-                word = "link,";
+            // Replace anything resembling a URL with the word "link"
+//            if (word.matches("([a-zA-Z]+:\\/\\/)?[a-zA-Z0-9]+(\\.[a-zA-Z0-9]{2,})*\\.[a-zA-Z]{2,}(:\\d+)?(\\/[^\\s]+)*")) {
+//                word = "link,";
+//            }
+
+            // Limit repeated words to 3 in a row
+            if (tempWord.equals(word)) {
+                if (++tempWordCount > 2) {
+                    continue;
+                }
+            } else {
+                tempWord = word;
+                tempWordCount = 0;
+            }
+
+            // Limit repeated characters to 3 in a row
+            if (word.matches("(.)(\\1){2,}")) {
+                StringBuilder sb = new StringBuilder(word);
+                char tempChar = ' ';
+                int tempCharCount = 0;
+                for (int i = 0; i < sb.length(); i++) {
+                    if (tempChar == sb.charAt(i))
+                    {
+                        tempCharCount++;
+                        if (tempCharCount > 2)
+                        {
+                            sb.deleteCharAt(i);
+                            i--;
+                        }
+                    }
+                    else {
+                        tempChar = sb.charAt(i);
+                        tempCharCount = 0;
+                    }
+                    word=sb.toString();
+                }
             }
             result += word + " ";
         }
@@ -773,11 +886,6 @@ public class Janna extends JPanel {
         return true;
     }
 
-    public void getMods() {
-        // TODO: Actually finish this
-        twitch.getHelix().getModerators(Creds._helixtoken, mainchannel_user.getId(), null, null, 1000);
-    }
-
     public void blindlyExecuteQuery(String query) throws Exception {
         PreparedStatement prep = sqlCon.prepareStatement(query);
         prep.execute();
@@ -793,7 +901,7 @@ public class Janna extends JPanel {
 
     public static void debug (String s) {
         console("[DEBUG] " + s, 7);
-        System.out.println(s);
+        //System.out.println(s);
     }
 
     public static void info (String s) {
@@ -828,15 +936,20 @@ public class Janna extends JPanel {
         String name = e.getUser().getName();
         String channel = e.getChannel().getName();
         User user = getUser(name);
+
+        for (String key : e.getMessageEvent().getBadges().keySet()) {
+            String value = e.getMessageEvent().getBadges().get(key);
+            user.roles.put(key, value);
+        }
         String message = e.getMessage();
         chat(name + ": " + message);
+
+        HashMap<String, Integer> emotes = getEmotes(e);
 
         if (message.charAt(0) == '!') {
             parseCommand(message, user);
             return;
         }
-
-        String translated = message;
 
         boolean canSpeak = true;
 
@@ -862,9 +975,64 @@ public class Janna extends JPanel {
             if (false) { // TODO: Read names
                 message = user.name + ": " + message;
             }
-            voices.add(new Voice(butcher(message, user), user));
+            new Voice(ssmlify(butcher(message, user), emotes), user);
         }
         //new Speaker(message).start();
+    }
+
+    // Mess with the text to do stuff like read emotes faster, or play sound effects
+    private String ssmlify(String message, HashMap<String, Integer> emotes) {
+        // Sanitize so peeps don't do bad custom SSML
+        message = message.replace("<", "less than").replace(">", "greater than");
+        for (String emote : emotes.keySet()) {
+            // The more times an emote shows up in a message, the faster it'll be read, to discourage spam, maybe.
+            message = message.replace(emote, "<prosody rate=\""+(150+25*emotes.get(emote))+"%\" volume=\"-8dB\">" + emote + "</prosody>");
+        }
+
+        // Handle sfx - Only play the first to avoid unholy noise spam
+        int soundPos = Integer.MAX_VALUE;
+        String find = "";
+        String replace = "";
+        for (String key : sfxList.keySet()) {
+            if (message.contains(key) && message.indexOf(key) < soundPos) {
+                soundPos = message.indexOf(key);
+                find=key;
+                replace = "<audio src=\""+sfxList.get(find)+"\">"+find+"</audio>";
+            }
+        }
+
+        message = message.replaceFirst(find, replace);
+
+        return "<speak>" + message + "</speak>";
+    }
+
+    // Gracefully borrowed from the Twitch4J discord server
+    private HashMap<String, Integer> getEmotes(ChannelMessageEvent e) {
+        HashMap<String, Integer> emoteList = new HashMap<>();
+            final String msg = e.getMessage();
+            final int msgLength = msg.length();
+            e.getMessageEvent().getTagValue("emotes")
+                    .map(emotes -> StringUtils.split(emotes, '/'))
+                    .ifPresent(emotes -> {
+                        for (String emoteStr : emotes) {
+                            final int indexDelim = emoteStr.indexOf(':');
+                            final String emoteId = emoteStr.substring(0, indexDelim);
+                            final String indices = emoteStr.substring(indexDelim + 1);
+                            final String[] indicesArr = StringUtils.split(indices, ',');
+                            for (String specificIndex : indicesArr) {
+                                final int specificDelim = specificIndex.indexOf('-');
+                                final int startIndex = Math.max(Integer.parseInt(specificIndex.substring(0, specificDelim)), 0);
+                                final int endIndex = Math.min(Integer.parseInt(specificIndex.substring(specificDelim + 1)) + 1, msgLength);
+                                final String emoteName = msg.substring(startIndex, endIndex);
+                                if (null == emoteList.get(emoteName.toLowerCase())){
+                                    emoteList.put(emoteName.toLowerCase(), 1);
+                                } else {
+                                    emoteList.put(emoteName.toLowerCase(), emoteList.get(emoteName.toLowerCase())+1);
+                                }
+                            }
+                        }
+                    });
+            return emoteList;
     }
 
     // Incoming messages starting with `!` handled here
@@ -872,17 +1040,18 @@ public class Janna extends JPanel {
         message = message.substring(1);
         String[] split = message.split(" ");
         String cmd = split[0];
+
+
         if (cmd.equalsIgnoreCase("no")) {
-            //voices.get(0).
-        } else if (cmd.equalsIgnoreCase("test")) {
-            for (String mod : twitch.getMessagingInterface().getChatters(appConfig.get("mainchannel")).execute().getModerators()) {
-                info("Moderator: " + mod);
+            if (!isMod(user.name)) return;
+            speechQueue.currentlyPlaying.get(0).clip.stop();
+            speechQueue.currentlyPlaying.get(0).busy=false;
+        } else if (cmd.equalsIgnoreCase("stfu")) {
+            if (!isMod(user.name)) return;
+            for (int i = speechQueue.currentlyPlaying.size()-1; i >= 0; i--) {
+                speechQueue.currentlyPlaying.get(i).clip.stop();
+                speechQueue.currentlyPlaying.get(i).busy = false;
             }
-            info("Or...");
-            for (Moderator mod : twitch.getHelix().getModerators(Creds._helixtoken, mainchannel_user.getId(), null, null, 100).execute().getModerators()) {
-                info("Helix mod: " + mod.getUserName());
-            }
-            // TODO
         } else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
             if (setUserPref(user, "butt_stuff", "0")) {
                 twitch.getChat().sendMessage(appConfig.get("mainchannel"), "Okay, I won't butt you, bro.");
@@ -895,5 +1064,34 @@ public class Janna extends JPanel {
             // TODO
         }
     }
+
+
+
+    public boolean isSuperMod(String username) {
+        return ("1".equals(getUser(username).roles.get("broadcaster")));
+    }
+
+    public boolean isMod(String username) {
+        return (isSuperMod(username) || "1".equals(getUser(username).roles.get("moderator")));
+    }
+
+    public boolean isSub(String username) {
+        return (isSuperMod(username)
+                || "1".equals(getUser(username).roles.get("subscriber"))
+                || "1".equals(getUser(username).roles.get("founder"))
+        );
+    }
+
+    public boolean isVIP(String username) {
+        return (isSuperMod(username) || isMod(username) || "1".equals(getUser(username).roles.get("vip")));
+    }
+
+    public List<String> getMods() {
+        return twitch.getMessagingInterface().getChatters(appConfig.get("mainchannel")).execute().getModerators();
+    }
 }
+
+
+
+
 
