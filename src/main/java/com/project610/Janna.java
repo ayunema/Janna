@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.*;
 import java.util.List;
 
@@ -20,7 +21,6 @@ import com.github.twitch4j.TwitchClientBuilder;
 import com.github.twitch4j.chat.events.channel.ChannelMessageEvent;
 import com.github.twitch4j.eventsub.domain.RedemptionStatus;
 import com.github.twitch4j.helix.domain.CustomReward;
-import com.github.twitch4j.helix.domain.Moderator;
 import com.github.twitch4j.pubsub.domain.ChannelPointsRedemption;
 import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
 
@@ -77,11 +77,9 @@ public class Janna extends JPanel {
     Path configPath = Paths.get("config.ini");
     HashMap<String, String> appConfig;
 
-    Path replaceListPath = Paths.get("replacelist.txt");
-    public static HashMap<String,String> replaceList = new HashMap<>();
-
-    Path sfxPath = Paths.get("sfx.txt");
+    public static HashMap<String,String> filterList = new HashMap<>();
     public static HashMap<String, String> sfxList = new HashMap<>();
+    public static HashMap<String, String> responseList = new HashMap<>();
 
     public Janna(String[] args, JFrame jf) {
         Janna.instance = this;
@@ -190,10 +188,8 @@ public class Janna extends JPanel {
 
         appConfig = new HashMap<>();
 
-        // Get a buncha app settings
+        // Get app settings
         readAppConfig();
-        readReplaceList();
-        readSfxList();
 
 
         // SpeechQueue started; Will ready up and play voices as they come
@@ -245,6 +241,20 @@ public class Janna extends JPanel {
                 + ");"
         );
         createAuthTable.execute();
+
+        PreparedStatement createReactionTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS reaction ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", type VARCHAR(128)"
+                + ", phrase VARCHAR(128) UNIQUE"
+                + ", result VARCHAR(1024)"
+                + ", extra VARCHAR(1024)"
+                + ");"
+        );
+        createReactionTable.execute();
+
+        // Load reaction stuff
+        loadReactions();
+
 
         // Get credentials for logging into chat
         credential = new OAuth2Credential("twitch", Creds._password);
@@ -334,6 +344,52 @@ public class Janna extends JPanel {
         }
     }
 
+    private ResultSet getReaction(String type) {
+        try {
+            PreparedStatement getReactions = sqlCon.prepareStatement("SELECT * FROM reaction WHERE type=?;");
+            getReactions.setString(1, type);
+            getReactions.execute();
+            return getReactions.getResultSet();
+        } catch (SQLException ex) {
+            error("SQL Exception while getting reactions for type: " + type,ex);
+        }
+        return EMPTY_RESULT_SET;
+    }
+
+    private ResultSet getReactions() {
+        try {
+            PreparedStatement getReactions = sqlCon.prepareStatement("SELECT * FROM reaction;");
+            return getReactions.executeQuery();
+        } catch (SQLException ex) {
+            error("SQL Exception while getting reactions", ex);
+        }
+        return EMPTY_RESULT_SET;
+    }
+
+    private void loadReactions() {
+        try {
+            ResultSet result = getReactions();
+            if (result.isClosed()) return;
+
+            do {
+                String type = result.getString("type");
+                String key = result.getString("phrase");
+                String value = result.getString("result");
+                String extra = result.getString("extra");
+
+                if (type.equalsIgnoreCase("filter")) {
+                    filterList.put(key, value);
+                } else if (type.equalsIgnoreCase("sfx")) {
+                    sfxList.put(key, value);
+                } else if (type.equalsIgnoreCase("response")) {
+                    responseList.put(key,value);
+                }
+            } while (result.next());
+        } catch (Exception ex) {
+            error("Failed to load reactions from DB", ex);
+        }
+    }
+
     private void readReplaceList() throws Exception {
         try {
             List<String> list = Files.readAllLines(replaceListPath);
@@ -344,7 +400,7 @@ public class Janna extends JPanel {
                 String key = s.split("=", 2)[0];
                 String value = s.split("=", 2)[1];
 
-                replaceList.put(key, value);
+                filterList.put(key, value);
             }
 
         } catch (Exception ex) {
@@ -701,8 +757,8 @@ public class Janna extends JPanel {
         s = s.toLowerCase();
 
 
-        for (String find : replaceList.keySet()) {
-            String replace = replaceList.get(find);
+        for (String find : filterList.keySet()) {
+            String replace = filterList.get(find);
             s = s.replaceAll(find, replace);
         }
 
@@ -886,9 +942,14 @@ public class Janna extends JPanel {
         return true;
     }
 
-    public void blindlyExecuteQuery(String query) throws Exception {
+    public ResultSet executeQuery(String query) throws SQLException {
         PreparedStatement prep = sqlCon.prepareStatement(query);
-        prep.execute();
+        return prep.executeQuery();
+    }
+
+    public int executeUpdate(String query) throws SQLException {
+        PreparedStatement prep = sqlCon.prepareStatement(query);
+        return prep.executeUpdate();
     }
 
     // Logging stuff, should probably move this into its own class
@@ -945,6 +1006,12 @@ public class Janna extends JPanel {
         chat(name + ": " + message);
 
         HashMap<String, Integer> emotes = getEmotes(e);
+
+        for (String phrase : responseList.keySet()) {
+            if (message.toLowerCase().contains(phrase.toLowerCase())) {
+                sendMessage(responseList.get(phrase));
+            }
+        }
 
         if (message.charAt(0) == '!') {
             parseCommand(message, user);
@@ -1052,7 +1119,26 @@ public class Janna extends JPanel {
                 speechQueue.currentlyPlaying.get(i).clip.stop();
                 speechQueue.currentlyPlaying.get(i).busy = false;
             }
-        } else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
+        } else if (cmd.equalsIgnoreCase("janna.addsfx")) {
+            if (!isMod(user.name)) return;
+            addReaction("sfx", message);
+        } else if (cmd.equalsIgnoreCase("janna.addfilter")) {
+            if (!isMod(user.name)) return;
+            addReaction("filter", message);
+        } else if (cmd.equalsIgnoreCase("janna.addresponse")) {
+            if (!isMod(user.name)) return;
+            addReaction("response", message);
+        } else if (cmd.equalsIgnoreCase("janna.removesfx")) {
+            if (!isMod(user.name)) return;
+            removeReaction("sfx", message);
+        } else if (cmd.equalsIgnoreCase("janna.removefilter")) {
+            if (!isMod(user.name)) return;
+            removeReaction("filter", message);
+        } else if (cmd.equalsIgnoreCase("janna.removeresponse")) {
+            if (!isMod(user.name)) return;
+            removeReaction("response", message);
+        }
+        else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
             if (setUserPref(user, "butt_stuff", "0")) {
                 twitch.getChat().sendMessage(appConfig.get("mainchannel"), "Okay, I won't butt you, bro.");
             }
@@ -1066,6 +1152,93 @@ public class Janna extends JPanel {
     }
 
 
+    public void addReaction (String type, String message) {
+        String[] split = message.split(" ",3);
+        String phrase = "", result = "";
+        try {
+            phrase = split[1].toLowerCase();
+            result = split[2];
+            String query = "INSERT INTO reaction (type, phrase, result) VALUES ('"+type+"', '"+phrase+"', '"+result+"');";
+            executeUpdate(query);
+            switch (type) {
+                case "sfx":
+                    sfxList.put(phrase, result);
+                    sendMessage("Added SFX for phrase: " + phrase);
+                    break;
+                case "filter":
+                    filterList.put(phrase, result);
+                    sendMessage("Added filter for phrase: " + phrase);
+                    break;
+                case "response":
+                    responseList.put(phrase, result);
+                    sendMessage("Added response to phrase: " + phrase);
+                    break;
+            }
+        } catch (SQLException ex) {
+            if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
+                sendMessage(type + ": `"+split[1]+"` already exists");
+            } else {
+                error("Failed to insert "+type+": " + message.split(" ")[1], ex);
+                sendMessage("Failed to add "+type+": " + ex.toString());
+            }
+        } catch (IndexOutOfBoundsException ex) {
+            warn("add " + type + " command malformatted");
+            switch (type) {
+                case "sfx":
+                    sendMessage("Malformatted command; Usage: `!janna.addSfx <phrase> <https://__________>` (wav, mp3, ogg)");
+                    break;
+                case "filter":
+                    sendMessage("Malformatted command; Usage: `!janna.addFilter <phrase> <filtered phrase>`");
+                    break;
+                case "response":
+                    sendMessage("Malformatted command; Usage: `!janna.addResponse <phrase> <response>`");
+                    break;
+            }
+        }
+    }
+
+    public void removeReaction (String type, String message) {
+        String[] split = message.split(" ",3);
+        String phrase = "";
+        try {
+            phrase = split[1].toLowerCase();
+            String query = "DELETE FROM reaction WHERE type='"+type+"' AND phrase='"+phrase+"';";
+            if (executeUpdate(query) > 0) {
+                switch (type) {
+                    case "sfx":
+                        sfxList.remove(phrase);
+                        sendMessage("Removed SFX for phrase: " + phrase);
+                        break;
+                    case "filter":
+                        filterList.remove(phrase);
+                        sendMessage("Removed filter for phrase: " + phrase);
+                        break;
+                    case "response":
+                        responseList.remove(phrase);
+                        sendMessage("Removed response to phrase: " + phrase);
+                        break;
+                }
+            } else {
+                sendMessage("No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
+            }
+        } catch (SQLException ex) {
+            error("Failed to remove "+type+": " + message.split(" ")[1], ex);
+            sendMessage("Failed to remove "+type+": " + ex.toString());
+        } catch (IndexOutOfBoundsException ex) {
+            warn("remove " + type + " command malformatted");
+            switch (type) {
+                case "sfx":
+                    sendMessage("Malformatted command; Usage: `!janna.removeSfx <phrase>");
+                    break;
+                case "filter":
+                    sendMessage("Malformatted command; Usage: `!janna.removeFilter <phrase>`");
+                    break;
+                case "response":
+                    sendMessage("Malformatted command; Usage: `!janna.removeResponse <phrase> `");
+                    break;
+            }
+        }
+    }
 
     public boolean isSuperMod(String username) {
         return ("1".equals(getUser(username).roles.get("broadcaster")));
