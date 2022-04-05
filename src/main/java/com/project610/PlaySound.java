@@ -17,13 +17,14 @@ public class PlaySound implements Runnable {
     AudioInputStream stream;
     String filename;
     String username;
-    boolean busy, cleanup;
+    boolean busy, cleanup, started;
 
     public PlaySound(String filename, String username) throws Exception {
         this.filename = filename;
         this.username = username;
         InputStream is = new FileInputStream(filename);
         soundFile = new BufferedInputStream(is);
+        started = false;
         busy = true;
         cleanup = false;
     }
@@ -92,5 +93,6 @@ public class PlaySound implements Runnable {
                 break;
             }
         }
+        started = true;
     }
 }

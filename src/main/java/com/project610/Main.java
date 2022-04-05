@@ -17,14 +17,15 @@ public class Main {
             System.err.println("Look and feel broke, probably falling back on the garbo L&F");
             ex.printStackTrace();
         }
-        JFrame jf = new JFrame("Janna v0.0.3 (NOW on GitHub?)");
+        JFrame jf = new JFrame("Janna %VERSION% (Open source edition)");
         jf.setMinimumSize(new Dimension(300, 300));
         jf.setSize(500,400);
 
-        Janna janna= new Janna(args, jf);
+        Janna janna = new Janna(args, jf);
         janna.setBackground(new Color(230, 230, 230));
         jf.setContentPane(janna);
         jf.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+
         jf.setVisible(true);
 
         try {

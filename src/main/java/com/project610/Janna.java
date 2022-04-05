@@ -5,6 +5,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.io.*;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -25,6 +26,8 @@ import com.github.twitch4j.pubsub.domain.ChannelPointsRedemption;
 import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
 
 import com.netflix.hystrix.exception.HystrixRuntimeException;
+import com.project610.structs.JList2;
+import net.miginfocom.swing.MigLayout;
 import org.apache.commons.lang.StringUtils;
 import org.sqlite.SQLiteDataSource;
 
@@ -64,28 +67,21 @@ public class Janna extends JPanel {
     public boolean whitelistOnly = false;
 
 
-
-    // UI stuff
-    JFrame parent;
-
-    JPanel midPane;
-    public static JTextArea chatArea;
-    JScrollPane chatScroll;
-    JTextField inputField;
-
     // Config stuff
     Path configPath = Paths.get("config.ini");
     HashMap<String, String> appConfig;
+    String appVersion = "";
 
     public static HashMap<String,String> filterList = new HashMap<>();
     public static HashMap<String, String> sfxList = new HashMap<>();
     public static HashMap<String, String> responseList = new HashMap<>();
 
-    public Janna(String[] args, JFrame jf) {
+    public Janna(String[] args, JFrame parent) {
+        super(new MigLayout("fill, wrap"));
+
         Janna.instance = this;
 
-        parent = jf;
-        setLayout(new BoxLayout(this, PAGE_AXIS));
+        this.parent = parent;
 
         try {
             initUI();
@@ -114,17 +110,81 @@ public class Janna extends JPanel {
     }
 
 
+    public static JPanel hbox() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.LINE_AXIS));
+        return panel;
+    }
+
+    public static JPanel vbox() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.PAGE_AXIS));
+        return panel;
+    }
+
+    // UI stuff
+    JFrame parent;
+
+    JMenuBar menuBar;
+
+    JPanel midPane;
+    public static JTextArea chatArea;
+    JScrollPane chatScroll;
+    JList2 userList;
+
+    JPanel inputPane;
+    JTextField inputField;
+
+
     public void initUI() throws Exception {
+        removeAll();
+
+        setBackground(new Color(50, 50, 100));
+
+        menuBar = new JMenuBar();
+        //add(menuBar);
+        parent.setJMenuBar(menuBar);
+        menuBar.setLayout(new BoxLayout(menuBar, LINE_AXIS));
+
+        JMenu fileMenu = new JMenu("File");
+        menuBar.add(fileMenu);
+
+        JMenuItem exitItem = new JMenuItem("Exit");
+        exitItem.addActionListener(e -> {
+            parent.dispose();
+        });
+        fileMenu.add(exitItem);
+
+        JMenuItem test = new JMenuItem("test");
+        test.addActionListener(e -> {
+
+        });
+        fileMenu.add(test);
+
+        JMenu chatMenu = new JMenu("Chat");
+        menuBar.add(chatMenu);
+
+        menuBar.add(Box.createHorizontalGlue());
+
+        JMenuItem silenceCurrentItem = new JMenuItem("Kill current message");
+        silenceCurrentItem.addActionListener(e-> silenceCurrentVoices());
+        chatMenu.add(silenceCurrentItem);
+
+        chatMenu.add(Box.createRigidArea(new Dimension(5,16)));
+
+        JMenuItem silenceAllItem = new JMenuItem("Kill all queued messages");
+        silenceAllItem.addActionListener(e-> silenceAllVoices());
+        chatMenu.add(silenceAllItem);
 
         // Mid pane to hold chat area, user list, input box, and send button (h-box)
-        midPane = new JPanel();
-        midPane.setLayout(new BoxLayout(midPane, LINE_AXIS));
-        add(midPane);
+        midPane = new JPanel(new MigLayout("fill"));
+        midPane.setBackground(new Color(50, 50, 100));
+        add(midPane, "grow");
 
         // Chat pane holds all but the user list (v-box)
-        JPanel chatPane = new JPanel();
-        chatPane.setLayout(new BoxLayout(chatPane, PAGE_AXIS));
-        midPane.add(chatPane);
+        JPanel chatPane = new JPanel(new MigLayout("fill"));
+        chatPane.setBackground(new Color(50, 50, 100));
+        midPane.add(chatPane, "grow");
 
         chatArea = new JTextArea();
         //chatArea.setPreferredSize(new Dimension(300, 100));
@@ -133,18 +193,26 @@ public class Janna extends JPanel {
         chatArea.setFont(chatArea.getFont().deriveFont(11f));
         chatScroll = new JScrollPane(chatArea, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         //chatScroll.setPreferredSize(new Dimension(300,400));
+        chatPane.add(new JLabel(" "), "north");
+        chatPane.add(chatScroll, "grow");
+
+        JPanel userListPane = new JPanel(new MigLayout("filly"));
+        userListPane.setBackground(new Color(50, 50, 100));
+        midPane.add(userListPane, "east, grow");
+
+        JLabel chattersLabel = new JLabel("<html><font color=white><b>// Chatters</b></font></html>");
+        userListPane.add(chattersLabel, "north");
+
+        userList = new JList2<String>();
+        userList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        userList.setPrototypeCellValue("___________________");
+        userListPane.add (new JScrollPane(userList, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS), "growy");
+
+        inputPane = new JPanel(new MigLayout("fillx"));
+        inputPane.setBackground(new Color(50, 50, 100));
+        add(inputPane, "south, h 30");
 
         inputField = new JTextField();
-        inputField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20));
-
-        parent.addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override
-            public void windowClosing(java.awt.event.WindowEvent windowEvent) {
-                try {
-                    //webserver.stop();
-                } catch (Exception ex) {}
-            }});
-
         inputField.addKeyListener(new KeyListener() {
             @Override
             public void keyTyped(KeyEvent e) {
@@ -164,24 +232,30 @@ public class Janna extends JPanel {
 
             }
         });
-        chatPane.add(chatScroll);
 
-        JPanel inputPane = new JPanel();
-        inputPane.setLayout(new BoxLayout(inputPane, LINE_AXIS));
-
-        chatPane.add(inputPane);
-
-        inputPane.add(inputField); // This should be in yet another pane??
+        inputPane.add(inputField, "grow"); // This should be in yet another pane??
         JButton sendButton = new JButton("Send");
         sendButton.addActionListener(e -> sendChat());
-        inputPane.add(sendButton);
+        inputPane.add(sendButton, "east, w 50");
+    }
 
-        midPane.add (new JButton("<Userlist>"));
+    // Lazy UI stuff, will eventually obsolete this crap
+    public static Component prefSize(Component component, int w, int h) {
+        component.setPreferredSize(new Dimension(w, h));
+        return component;
+    }
 
-        add (new JButton("poop"));
-        add (new JButton("farts"));
-        add (new JButton("and butts"));
+    public static Component maxSize(Component component, int w, int h) {
+        component.setMaximumSize(new Dimension((w == -1 ? Integer.MAX_VALUE : w), (h == -1 ? Integer.MAX_VALUE : h)));
+        return component;
+    }
 
+    public static Component rigidSize(Component component, int w, int h) {
+        component.setMinimumSize(new Dimension(w, h));
+        component.setPreferredSize(new Dimension(w, h));
+        component.setMaximumSize(new Dimension(w, h));
+        component.setSize(new Dimension(w, h));
+        return component;
     }
 
     public void init() throws Exception {
@@ -320,30 +394,6 @@ public class Janna extends JPanel {
         info("Beware I live");
     }
 
-    private void readSfxList() throws Exception {
-        try {
-            List<String> list = Files.readAllLines(sfxPath);
-            for (String s : list) {
-                s = s.trim();
-                if (s.isEmpty() || s.charAt(0) == '#') continue;
-
-                String key = s.split("=", 2)[0];
-                String value = s.split("=", 2)[1];
-
-                sfxList.put(key, value);
-            }
-
-        } catch (Exception ex) {
-            warn("Failed to read sfxlist.txt");
-            if (!Files.exists(sfxPath)) {
-                Files.write(sfxPath, (
-                        "# Make sounds out of words! (Supports WAV, MP3, OGG up to 5MB)\n" +
-                        "# Example: `fart=https://www.project610.com/files/fart.wav` !\n" +
-                        "fart=https://www.project610.com/files/fart.wav\n").getBytes());
-            }
-        }
-    }
-
     private ResultSet getReaction(String type) {
         try {
             PreparedStatement getReactions = sqlCon.prepareStatement("SELECT * FROM reaction WHERE type=?;");
@@ -390,34 +440,6 @@ public class Janna extends JPanel {
         }
     }
 
-    private void readReplaceList() throws Exception {
-        try {
-            List<String> list = Files.readAllLines(replaceListPath);
-            for (String s : list) {
-                s = s.trim();
-                if (s.isEmpty() || s.charAt(0) == '#') continue;
-
-                String key = s.split("=", 2)[0];
-                String value = s.split("=", 2)[1];
-
-                filterList.put(key, value);
-            }
-
-        } catch (Exception ex) {
-            warn("Failed to read replacelist.txt");
-            if (!Files.exists(replaceListPath)) {
-                Files.write(replaceListPath, (
-                        "# Words in chat that you write here, will be replace by whatever you want!\n" +
-                        "# Example: `dollar=loonie` will make Janna read the word `dollar` as `loonie`!\n" +
-                        "virus610=virus six ten\n\n" +
-
-                        "# You can even replace using regex!\n" +
-                        "# Example: `(cat|dog)=friendo`\n" +
-                        "([a-zA-Z]+:\\/\\/)?[a-zA-Z0-9]+(\\.[a-zA-Z0-9]{2,})*\\.[a-zA-Z]{2,}(:\\d+)?(\\/[^\\s]+)*=link").getBytes());
-            }
-        }
-    }
-
     private void readAppConfig() throws Exception {
         try {
             List<String> config = Files.readAllLines(configPath);
@@ -450,6 +472,29 @@ public class Janna extends JPanel {
                                 "# (Comma separated list, eg: channel6,channel1,channel0)\n" +
                                 "extrachannels=\n").getBytes());
             }
+        }
+
+
+        try {
+            InputStream is = getClass().getClassLoader().getResourceAsStream(".properties");
+
+            //properties = Files.readAllLines(Paths.get(getClass().getClassLoader().getResource(".properties").toURI()));
+            BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (line.startsWith("version=")) {
+                    appVersion = line.substring(line.indexOf("=") + 1);
+                    if (null == appConfig.get("version") || !appConfig.get("version").equalsIgnoreCase(appVersion)) {
+                        appConfig.put("version", appVersion);
+                        // TODO: Deal with new app versions somehow
+//                        writeSettings();
+//                        newVersion = true;
+                    }
+                    parent.setTitle(parent.getTitle().replace("%VERSION%",  "v" + appVersion));
+                }
+            }
+        } catch (Exception ex) {
+            // If we can't read from resources, we got problems
         }
     }
 
@@ -603,7 +648,7 @@ public class Janna extends JPanel {
             }
 
         } else {
-            sendMessage(message);
+            sendMessage(appConfig.get("mainchannel"), message);
             chat(Creds._username + ": " + message);
         }
     }
@@ -613,6 +658,7 @@ public class Janna extends JPanel {
         ChannelPointsRedemption redemption = event.getRedemption();
         String username = redemption.getUser().getDisplayName();
         String reward = redemption.getReward().getTitle();
+        String channel = twitch.getChat().getChannelIdToChannelName().get(event.getRedemption().getChannelId());
 
         User currentUser = getUser(username);
         int redeemed = 0;
@@ -632,7 +678,7 @@ public class Janna extends JPanel {
                 currentUser.save();
                 redeemed = 1;
             } else {
-                sendMessage(username + ": Your voice is as low as it gets! (@" + username + ")");
+                sendMessage(channel,username + ": Your voice is as low as it gets! (@" + username + ")");
             }
         }
         else if (reward.equalsIgnoreCase("TTS: Raise my voice pitch")) {
@@ -642,7 +688,7 @@ public class Janna extends JPanel {
                 redeemed = 1;
             }
             else {
-                sendMessage(username + ": I can't raise your voice any higher than this (@" + username + ")");
+                sendMessage(channel,username + ": I can't raise your voice any higher than this (@" + username + ")");
             }
         }
         else if (reward.equalsIgnoreCase("TTS: Slow down my voice")) {
@@ -651,7 +697,7 @@ public class Janna extends JPanel {
                 currentUser.save();
                 redeemed = 1;
             } else {
-                sendMessage("Your voice is already minimum speed (@" + username + "");
+                sendMessage(channel,"Your voice is already minimum speed (@" + username + "");
             }
         }
         else if (reward.equalsIgnoreCase("TTS: Speed up my voice")) {
@@ -661,20 +707,20 @@ public class Janna extends JPanel {
                 redeemed = 1;
             }
             else {
-                sendMessage("Your voice is already max speed (@" + username + "");
+                sendMessage(channel,"Your voice is already max speed (@" + username + "");
             }
         }
         else if (reward.equalsIgnoreCase("TTS: Set my voice accent")) {
-            redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), false);
+            redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel,false);
         }
         // The way this is intended to work is: New people get 1 'free' accent change, subsequent changes are
         //  considerably more expensive, to keep people from confusing the streamer with constant significant changes
         else if (reward.equalsIgnoreCase("*NEWCOMERS ONLY* TTS: Set my voice accent")) {
             if (currentUser.freeVoice > 0) {
-                redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), true);
+                redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel,true);
             }
             else {
-                sendMessage("Scam detected. I'm keeping those channel points.  (@" + currentUser.name + ")");
+                sendMessage(channel,"Scam detected. I'm keeping those channel points.  (@" + currentUser.name + ")");
                 redeemed = 1;
             }
         }
@@ -700,7 +746,7 @@ public class Janna extends JPanel {
     }
 
     // Change accent - Could probably tie the speed/pitch into this later as well. TODO
-    public int changeUserVoice(User currentUser, String input, boolean freebie) {
+    public int changeUserVoice(User currentUser, String input, String channel, boolean freebie) {
         if (voiceNames.contains(input)) {
             if (!currentUser.voiceName.equalsIgnoreCase(input)) {
                 currentUser.voiceName = input;
@@ -708,10 +754,10 @@ public class Janna extends JPanel {
                 currentUser.save();
                 return 1;
             } else {
-                sendMessage("Bruh you're already usin' that voice (@" + currentUser.name + ")");
+                sendMessage(channel,"You're already using that voice (@" + currentUser.name + ")");
             }
         } else {
-            sendMessage("That voice ain't real, yo (@" + currentUser.name + ")");
+            sendMessage(channel,"That voice isn't supported (@" + currentUser.name + ")");
         }
         return 0;
     }
@@ -768,11 +814,6 @@ public class Janna extends JPanel {
 
         // Anti-spam and anti-annoyance measures
         for (String word : words) {
-            // Replace anything resembling a URL with the word "link"
-//            if (word.matches("([a-zA-Z]+:\\/\\/)?[a-zA-Z0-9]+(\\.[a-zA-Z0-9]{2,})*\\.[a-zA-Z]{2,}(:\\d+)?(\\/[^\\s]+)*")) {
-//                word = "link,";
-//            }
-
             // Limit repeated words to 3 in a row
             if (tempWord.equals(word)) {
                 if (++tempWordCount > 2) {
@@ -880,6 +921,10 @@ public class Janna extends JPanel {
                 }
                 users.put(currentUser.id, currentUser);
                 userIds.put(currentUser.name, currentUser.id);
+
+                if (!userList.getItems().contains(username)) {
+                    userList.add(username);
+                }
             } catch (Exception ex) {
                 error("SQL broke", ex);
             }
@@ -1009,12 +1054,12 @@ public class Janna extends JPanel {
 
         for (String phrase : responseList.keySet()) {
             if (message.toLowerCase().contains(phrase.toLowerCase())) {
-                sendMessage(responseList.get(phrase));
+                sendMessage(channel, responseList.get(phrase));
             }
         }
 
         if (message.charAt(0) == '!') {
-            parseCommand(message, user);
+            parseCommand(message, user, channel);
             return;
         }
 
@@ -1051,9 +1096,13 @@ public class Janna extends JPanel {
     private String ssmlify(String message, HashMap<String, Integer> emotes) {
         // Sanitize so peeps don't do bad custom SSML
         message = message.replace("<", "less than").replace(">", "greater than");
+        int emoteCount = 0;
+        for (String emote : emotes.keySet()) {
+            emoteCount += emotes.get(emote);
+        }
         for (String emote : emotes.keySet()) {
             // The more times an emote shows up in a message, the faster it'll be read, to discourage spam, maybe.
-            message = message.replace(emote, "<prosody rate=\""+(150+25*emotes.get(emote))+"%\" volume=\"-8dB\">" + emote + "</prosody>");
+            message = message.replace(emote, "<prosody rate=\""+(150+25*emoteCount)+"%\" volume=\""+(-2-1*emoteCount)+"dB\">" + emote + "</prosody>");
         }
 
         // Handle sfx - Only play the first to avoid unholy noise spam
@@ -1064,7 +1113,7 @@ public class Janna extends JPanel {
             if (message.contains(key) && message.indexOf(key) < soundPos) {
                 soundPos = message.indexOf(key);
                 find=key;
-                replace = "<audio src=\""+sfxList.get(find)+"\">"+find+"</audio>";
+                replace = "<audio src=\""+sfxList.get(find)+"\" >"+find+"</audio>";
             }
         }
 
@@ -1103,7 +1152,7 @@ public class Janna extends JPanel {
     }
 
     // Incoming messages starting with `!` handled here
-    private void parseCommand(String message, User user) {
+    private void parseCommand(String message, User user, String channel) {
         message = message.substring(1);
         String[] split = message.split(" ");
         String cmd = split[0];
@@ -1111,32 +1160,28 @@ public class Janna extends JPanel {
 
         if (cmd.equalsIgnoreCase("no")) {
             if (!isMod(user.name)) return;
-            speechQueue.currentlyPlaying.get(0).clip.stop();
-            speechQueue.currentlyPlaying.get(0).busy=false;
+            silenceCurrentVoices();
         } else if (cmd.equalsIgnoreCase("stfu")) {
             if (!isMod(user.name)) return;
-            for (int i = speechQueue.currentlyPlaying.size()-1; i >= 0; i--) {
-                speechQueue.currentlyPlaying.get(i).clip.stop();
-                speechQueue.currentlyPlaying.get(i).busy = false;
-            }
+            silenceAllVoices();
         } else if (cmd.equalsIgnoreCase("janna.addsfx")) {
             if (!isMod(user.name)) return;
-            addReaction("sfx", message);
+            addReaction("sfx", message, channel);
         } else if (cmd.equalsIgnoreCase("janna.addfilter")) {
             if (!isMod(user.name)) return;
-            addReaction("filter", message);
+            addReaction("filter", message, channel);
         } else if (cmd.equalsIgnoreCase("janna.addresponse")) {
             if (!isMod(user.name)) return;
-            addReaction("response", message);
+            addReaction("response", message, channel);
         } else if (cmd.equalsIgnoreCase("janna.removesfx")) {
             if (!isMod(user.name)) return;
-            removeReaction("sfx", message);
+            removeReaction("sfx", message, channel);
         } else if (cmd.equalsIgnoreCase("janna.removefilter")) {
             if (!isMod(user.name)) return;
-            removeReaction("filter", message);
+            removeReaction("filter", message, channel);
         } else if (cmd.equalsIgnoreCase("janna.removeresponse")) {
             if (!isMod(user.name)) return;
-            removeReaction("response", message);
+            removeReaction("response", message, channel);
         }
         else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
             if (setUserPref(user, "butt_stuff", "0")) {
@@ -1151,8 +1196,31 @@ public class Janna extends JPanel {
         }
     }
 
+    public void silenceCurrentVoices() {
+        for (int i = speechQueue.currentlyPlaying.size()-1; i >= 0; i--) {
+            try {
+                if (speechQueue.currentlyPlaying.get(i).started) {
+                    speechQueue.currentlyPlaying.get(i).clip.stop();
+                    speechQueue.currentlyPlaying.get(i).busy = false;
+                }
+            } catch (Exception ex) {
 
-    public void addReaction (String type, String message) {
+            }
+        }
+    }
+
+    public void silenceAllVoices() {
+        try {
+            for (int i = speechQueue.currentlyPlaying.size() - 1; i >= 0; i--) {
+                speechQueue.currentlyPlaying.get(i).clip.stop();
+                speechQueue.currentlyPlaying.get(i).busy = false;
+            }
+        } catch (Exception ex) {
+
+        }
+    }
+
+    public void addReaction (String type, String message, String channel) {
         String[] split = message.split(" ",3);
         String phrase = "", result = "";
         try {
@@ -1163,41 +1231,41 @@ public class Janna extends JPanel {
             switch (type) {
                 case "sfx":
                     sfxList.put(phrase, result);
-                    sendMessage("Added SFX for phrase: " + phrase);
+                    sendMessage(channel,"Added SFX for phrase: " + phrase);
                     break;
                 case "filter":
                     filterList.put(phrase, result);
-                    sendMessage("Added filter for phrase: " + phrase);
+                    sendMessage(channel,"Added filter for phrase: " + phrase);
                     break;
                 case "response":
                     responseList.put(phrase, result);
-                    sendMessage("Added response to phrase: " + phrase);
+                    sendMessage(channel,"Added response to phrase: " + phrase);
                     break;
             }
         } catch (SQLException ex) {
             if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
-                sendMessage(type + ": `"+split[1]+"` already exists");
+                sendMessage(channel,type + ": `"+split[1]+"` already exists");
             } else {
                 error("Failed to insert "+type+": " + message.split(" ")[1], ex);
-                sendMessage("Failed to add "+type+": " + ex.toString());
+                sendMessage(channel,"Failed to add "+type+": " + ex.toString());
             }
         } catch (IndexOutOfBoundsException ex) {
             warn("add " + type + " command malformatted");
             switch (type) {
                 case "sfx":
-                    sendMessage("Malformatted command; Usage: `!janna.addSfx <phrase> <https://__________>` (wav, mp3, ogg)");
+                    sendMessage(channel,"Malformatted command; Usage: `!janna.addSfx <phrase> <https://__________>` (wav, mp3, ogg)");
                     break;
                 case "filter":
-                    sendMessage("Malformatted command; Usage: `!janna.addFilter <phrase> <filtered phrase>`");
+                    sendMessage(channel,"Malformatted command; Usage: `!janna.addFilter <phrase> <filtered phrase>`");
                     break;
                 case "response":
-                    sendMessage("Malformatted command; Usage: `!janna.addResponse <phrase> <response>`");
+                    sendMessage(channel,"Malformatted command; Usage: `!janna.addResponse <phrase> <response>`");
                     break;
             }
         }
     }
 
-    public void removeReaction (String type, String message) {
+    public void removeReaction (String type, String message, String channel) {
         String[] split = message.split(" ",3);
         String phrase = "";
         try {
@@ -1207,34 +1275,34 @@ public class Janna extends JPanel {
                 switch (type) {
                     case "sfx":
                         sfxList.remove(phrase);
-                        sendMessage("Removed SFX for phrase: " + phrase);
+                        sendMessage(channel,"Removed SFX for phrase: " + phrase);
                         break;
                     case "filter":
                         filterList.remove(phrase);
-                        sendMessage("Removed filter for phrase: " + phrase);
+                        sendMessage(channel,"Removed filter for phrase: " + phrase);
                         break;
                     case "response":
                         responseList.remove(phrase);
-                        sendMessage("Removed response to phrase: " + phrase);
+                        sendMessage(channel,"Removed response to phrase: " + phrase);
                         break;
                 }
             } else {
-                sendMessage("No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
+                sendMessage(channel,"No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
             }
         } catch (SQLException ex) {
             error("Failed to remove "+type+": " + message.split(" ")[1], ex);
-            sendMessage("Failed to remove "+type+": " + ex.toString());
+            sendMessage(channel,"Failed to remove "+type+": " + ex.toString());
         } catch (IndexOutOfBoundsException ex) {
             warn("remove " + type + " command malformatted");
             switch (type) {
                 case "sfx":
-                    sendMessage("Malformatted command; Usage: `!janna.removeSfx <phrase>");
+                    sendMessage(channel,"Malformatted command; Usage: `!janna.removeSfx <phrase>");
                     break;
                 case "filter":
-                    sendMessage("Malformatted command; Usage: `!janna.removeFilter <phrase>`");
+                    sendMessage(channel,"Malformatted command; Usage: `!janna.removeFilter <phrase>`");
                     break;
                 case "response":
-                    sendMessage("Malformatted command; Usage: `!janna.removeResponse <phrase> `");
+                    sendMessage(channel,"Malformatted command; Usage: `!janna.removeResponse <phrase> `");
                     break;
             }
         }
