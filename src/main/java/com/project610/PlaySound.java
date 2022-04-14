@@ -16,10 +16,10 @@ public class PlaySound implements Runnable {
     Clip clip;
     AudioInputStream stream;
     String filename;
-    String username;
-    boolean busy, cleanup, started;
+    public String username;
+    public boolean busy, cleanup, started;
 
-    public PlaySound(String filename, String username) throws Exception {
+    public PlaySound(String username, String filename) throws Exception {
         this.filename = filename;
         this.username = username;
         InputStream is = new FileInputStream(filename);
@@ -72,7 +72,7 @@ public class PlaySound implements Runnable {
 
             // Delete the file now that it's no longer needed
             debug(System.currentTimeMillis() + ": Sound played");
-            Files.deleteIfExists(Paths.get(filename));
+            cleanupQueue.queue.add(filename);
             debug(System.currentTimeMillis() + ": Deleted");
         } catch (Exception ex) {
             error("PlaySound error", ex);

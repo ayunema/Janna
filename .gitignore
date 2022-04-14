@@ -37,5 +37,7 @@ temp/
 config.ini
 replacelist.txt
 sfx.txt
+sfx/
 
 jcef-bundle/
+ffmpeg*/

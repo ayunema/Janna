@@ -1,8 +1,7 @@
 package com.project610;
 
 import java.awt.*;
-import java.awt.event.KeyEvent;
-import java.awt.event.KeyListener;
+import java.awt.event.*;
 import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -15,6 +14,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.github.philippheuer.credentialmanager.domain.OAuth2Credential;
 import com.github.twitch4j.TwitchClient;
@@ -26,6 +27,8 @@ import com.github.twitch4j.pubsub.domain.ChannelPointsRedemption;
 import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
 
 import com.netflix.hystrix.exception.HystrixRuntimeException;
+import com.project610.async.CleanupQueue;
+import com.project610.async.SpeechQueue;
 import com.project610.structs.JList2;
 import net.miginfocom.swing.MigLayout;
 import org.apache.commons.lang.StringUtils;
@@ -34,7 +37,6 @@ import org.sqlite.SQLiteDataSource;
 import javax.swing.*;
 
 import static javax.swing.BoxLayout.LINE_AXIS;
-import static javax.swing.BoxLayout.PAGE_AXIS;
 
 public class Janna extends JPanel {
 
@@ -53,6 +55,7 @@ public class Janna extends JPanel {
     public static ArrayList<String> voiceNames = new ArrayList<>();
     public static String defaultVoice = "en-US-Standard-B";
     public static SpeechQueue speechQueue;
+    public static CleanupQueue cleanupQueue;
 
     public static HashMap<Integer, User> users = new HashMap<>();
     public static HashMap<String, Integer> userIds = new HashMap<>();
@@ -62,19 +65,24 @@ public class Janna extends JPanel {
     public static TwitchClient twitch;
     private OAuth2Credential credential;
 
-    public ArrayList<String> muteList = new ArrayList<>();
+    public HashMap<String, Long> muteList = new HashMap<>();
     public ArrayList<String> whitelist = new ArrayList<>();
     public boolean whitelistOnly = false;
+
+    public TreeMap<String, JRadioButtonMenuItem> emoteHandleMethods = new TreeMap<>();
 
 
     // Config stuff
     Path configPath = Paths.get("config.ini");
-    HashMap<String, String> appConfig;
+    public static HashMap<String, String> appConfig = new HashMap<>();
     String appVersion = "";
 
     public static HashMap<String,String> filterList = new HashMap<>();
-    public static HashMap<String, String> sfxList = new HashMap<>();
+    public static HashMap<String, Sfx> sfxList = new HashMap<>();
     public static HashMap<String, String> responseList = new HashMap<>();
+
+//    static String ttsMode = "google"; // Pitch applies during synthesis, sounds better
+    static String ttsMode = "se"; // Way more voices, speed/pitch modify SFX, but *may suddenly crash and burn*
 
     public Janna(String[] args, JFrame parent) {
         super(new MigLayout("fill, wrap"));
@@ -82,6 +90,28 @@ public class Janna extends JPanel {
         Janna.instance = this;
 
         this.parent = parent;
+
+        // Get any info from resources (Such as version number)
+        try {
+            InputStream is = getClass().getClassLoader().getResourceAsStream(".properties");
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (line.startsWith("version=")) {
+                    appVersion = line.substring(line.indexOf("=") + 1);
+                    if (null == appConfig.get("version") || !appConfig.get("version").equalsIgnoreCase(appVersion)) {
+                        appConfig.put("version", appVersion);
+                        // TODO: Deal with new app versions somehow
+//                        writeSettings();
+//                        newVersion = true;
+                    }
+                    parent.setTitle(parent.getTitle().replace("%VERSION%",  "v" + appVersion));
+                }
+            }
+        } catch (Exception ex) {
+            // If we can't read from resources, we got problems
+        }
 
         try {
             initUI();
@@ -139,6 +169,44 @@ public class Janna extends JPanel {
     public void initUI() throws Exception {
         removeAll();
 
+        parent.addWindowListener(new WindowListener() {
+            @Override
+            public void windowOpened(WindowEvent e) {
+
+            }
+
+            @Override
+            public void windowClosing(WindowEvent e) {
+                appConfig.put("windowpos", parent.getLocationOnScreen().x + "," + parent.getLocationOnScreen().y);
+                writeSettings();
+            }
+
+            @Override
+            public void windowClosed(WindowEvent e) {
+
+            }
+
+            @Override
+            public void windowIconified(WindowEvent e) {
+
+            }
+
+            @Override
+            public void windowDeiconified(WindowEvent e) {
+
+            }
+
+            @Override
+            public void windowActivated(WindowEvent e) {
+
+            }
+
+            @Override
+            public void windowDeactivated(WindowEvent e) {
+
+            }
+        });
+
         setBackground(new Color(50, 50, 100));
 
         menuBar = new JMenuBar();
@@ -167,14 +235,45 @@ public class Janna extends JPanel {
         menuBar.add(Box.createHorizontalGlue());
 
         JMenuItem silenceCurrentItem = new JMenuItem("Kill current message");
-        silenceCurrentItem.addActionListener(e-> silenceCurrentVoices());
+        silenceCurrentItem.addActionListener(e -> silenceCurrentVoices());
         chatMenu.add(silenceCurrentItem);
 
-        chatMenu.add(Box.createRigidArea(new Dimension(5,16)));
-
         JMenuItem silenceAllItem = new JMenuItem("Kill all queued messages");
-        silenceAllItem.addActionListener(e-> silenceAllVoices());
+        silenceAllItem.addActionListener(e -> silenceAllVoices());
         chatMenu.add(silenceAllItem);
+
+        chatMenu.add(new JSeparator());
+
+        JMenuItem clearItem = new JMenuItem("Clear chat log");
+        clearItem.addActionListener(e -> {
+            chatArea.setText("");
+        });
+        chatMenu.add(clearItem);
+
+        chatMenu.add(new JSeparator());
+
+        JMenuItem channelsItem = new JMenuItem("Set login / channels");
+        channelsItem.addActionListener(e -> loginChannelPrompt());
+        chatMenu.add(channelsItem);
+
+        JMenu handleEmoteMenu = new JMenu("Emote handling");
+        chatMenu.add(handleEmoteMenu);
+
+        emoteHandleMethods.put("Default", new JRadioButtonMenuItem("Default"));
+        if (ttsMode.equalsIgnoreCase("google")) {
+            emoteHandleMethods.put("Fast emotes", new JRadioButtonMenuItem("Fast emotes"));
+        }
+        emoteHandleMethods.put("First only", new JRadioButtonMenuItem("First only"));
+        emoteHandleMethods.put("First of each", new JRadioButtonMenuItem("First of each"));
+        for (String key : emoteHandleMethods.keySet()) {
+            JRadioButtonMenuItem method = emoteHandleMethods.get(key);
+            method.addActionListener(e -> setEmoteHandleMethod(method.getText()));
+            if (key.equalsIgnoreCase(appConfig.get("emotehandle"))) {
+                setEmoteHandleMethod(method.getText());
+            }
+            handleEmoteMenu.add(method);
+        }
+
 
         // Mid pane to hold chat area, user list, input box, and send button (h-box)
         midPane = new JPanel(new MigLayout("fill"));
@@ -239,6 +338,173 @@ public class Janna extends JPanel {
         inputPane.add(sendButton, "east, w 50");
     }
 
+
+
+//    private void setLogin(String username, String oauth) {
+//        try {
+//            main = main.trim().toLowerCase();
+//            extra = extra.trim().replaceAll(" ", "");
+//            if (!appConfig.get("extrachannels").equalsIgnoreCase(extra.trim())) {
+//                String[] extras = extra.toLowerCase().split(",");
+//                for (String channel : twitch.getChat().getChannels()) {
+//                    if (!channel.equalsIgnoreCase(main) && !Arrays.asList(extras).contains(channel.toLowerCase())) {
+//                        System.out.println("Leaving " + channel);
+//                        twitch.getChat().leaveChannel(channel);
+//                    }
+//                }
+//                for (String channel : extras) {
+//                    try {
+//                        twitch.getChat().joinChannel(channel);
+//                    } catch (Exception ex) {
+//                        error("Failed to join channel: " + channel, ex);
+//                    }
+//                }
+//                appConfig.put("extrachannels", extra);
+//            }
+//            if (!appConfig.get("mainchannel").equalsIgnoreCase(main.trim())) {
+//                appConfig.put("mainchannel", main);
+//                writeSettings();
+//                if (null != appConfig.get("oauth")) { // Sign in if credentials are in place
+//                    twitch.close();
+//                    init();
+//                }
+//            }
+//        } catch (Exception ex) {
+//            error("Error setting channels", ex);
+//        }
+//    }
+
+    private void loginChannelPrompt() {
+        JDialog channelDialog = new JDialog(parent, "Set Login/Channels", true);
+        channelDialog.setLocation((int)parent.getLocation().getX() + 80, (int)parent.getLocation().getY() + 80);
+        channelDialog.setLayout(new MigLayout("fillx, w 600"));
+
+        JPanel inputPanel = new JPanel(new MigLayout("fillx"));
+        channelDialog.add(inputPanel, "growx");
+
+        inputPanel.add(new JLabel("Bot username"));
+        JTextField usernameField = new JTextField(appConfig.get("username"));
+        inputPanel.add(usernameField, "growx, pushx, wrap");
+
+        inputPanel.add(new JLabel("Bot oauth token"));
+        JPasswordField oauthField = new JPasswordField(appConfig.get("oauth"));
+        inputPanel.add(oauthField, "growx, pushx, wrap");
+
+        inputPanel.add(Box.createRigidArea(new Dimension(25, 25)), "wrap");
+
+        inputPanel.add(new JLabel("Main channel"));
+        JTextField mainField = new JTextField(appConfig.get("mainchannel"));
+        inputPanel.add(mainField, "growx, pushx, wrap");
+
+        inputPanel.add(new JLabel("Extra channels"));
+        JTextField extraField = new JTextField(appConfig.get("extrachannels"));
+        inputPanel.add(extraField, "growx, pushx, wrap");
+
+        JPanel buttonPanel = new JPanel(new MigLayout());
+        channelDialog.add(buttonPanel, "south");
+        JButton okButton = new JButton("OK");
+        okButton.addActionListener(e -> { channelDialog.dispose(); setLoginAndChannels(usernameField.getText(), oauthField.getPassword(), mainField.getText(), extraField.getText()); });
+        buttonPanel.add(okButton);
+        JButton cancelButton = new JButton("Cancel");
+        cancelButton.addActionListener(e -> channelDialog.dispose());
+        buttonPanel.add(cancelButton);
+
+        usernameField.addActionListener(okButton.getActionListeners()[0]);
+        oauthField.addActionListener(okButton.getActionListeners()[0]);
+        mainField.addActionListener(okButton.getActionListeners()[0]);
+        extraField.addActionListener(okButton.getActionListeners()[0]);
+
+        channelDialog.pack();
+        channelDialog.setVisible(true);
+    }
+
+    private void setLoginAndChannels(String username, char[] password, String main, String extra) {
+        boolean reinit = false;
+        String oauth = new String(password);
+        // Update login
+        try {
+            if (!username.equalsIgnoreCase(appConfig.get("username")) || !oauth.equalsIgnoreCase(appConfig.get("oauth"))) {
+                appConfig.put("username", username);
+                appConfig.put("oauth", oauth);
+                reinit = true;
+            }
+        } catch (Exception ex) {
+            error("Failed to store new login credentials", ex);
+        }
+
+        // Update channels
+        try {
+            main = main.trim().toLowerCase();
+            extra = extra.trim().replaceAll(" ", "");
+            if (null == twitch) {
+                appConfig.put("mainchannel", main);
+                appConfig.put("extrachannels", extra);
+                reinit = true;
+            } else {
+                if (!extra.trim().equalsIgnoreCase(appConfig.get("extrachannels"))) {
+                    String[] extras = extra.toLowerCase().split(",");
+                    for (String channel : twitch.getChat().getChannels()) {
+                        if (!channel.equalsIgnoreCase(main) && !Arrays.asList(extras).contains(channel.toLowerCase())) {
+                            System.out.println("Leaving " + channel);
+                            twitch.getChat().leaveChannel(channel);
+                        }
+                    }
+                    for (String channel : extras) {
+                        try {
+                            twitch.getChat().joinChannel(channel);
+                        } catch (Exception ex) {
+                            error("Failed to join channel: " + channel, ex);
+                        }
+                    }
+                    appConfig.put("extrachannels", extra);
+                }
+                if (!main.trim().equalsIgnoreCase(appConfig.get("mainchannel"))) {
+                    appConfig.put("mainchannel", main);
+                    reinit = true;
+                }
+            }
+        } catch (Exception ex) {
+            error("Error setting channels", ex);
+        }
+
+        try {
+            if (reinit) { // Sign in if credentials are in place
+                writeSettings();
+                if (null != twitch) twitch.close();
+                init();
+            }
+        } catch (Exception ex) {
+            error("Failed to re-init after setting login/channels", ex);
+        }
+    }
+
+    private void writeSettings() {
+        for (String key : appConfig.keySet()) {
+            try {
+                PreparedStatement prep = sqlCon.prepareStatement("INSERT OR REPLACE INTO appconfig (param, value) VALUES (?, ?);");
+                prep.setString(1, key);
+                prep.setString(2, appConfig.get(key));
+                prep.executeUpdate();
+            } catch (SQLException ex) {
+                error("Error writing app config to DB", ex);
+            }
+        }
+    }
+
+    private void setEmoteHandleMethod(String newMethod) {
+        if (null == newMethod) {
+            newMethod = "Default";
+        }
+        for (String key : emoteHandleMethods.keySet()) {
+            if (key.equalsIgnoreCase(newMethod)) {
+                appConfig.put("emotehandle", newMethod);
+                emoteHandleMethods.get(key).setSelected(true);
+            } else {
+                emoteHandleMethods.get(key).setSelected(false);
+            }
+        }
+    }
+
     // Lazy UI stuff, will eventually obsolete this crap
     public static Component prefSize(Component component, int w, int h) {
         component.setPreferredSize(new Dimension(w, h));
@@ -260,74 +526,28 @@ public class Janna extends JPanel {
 
     public void init() throws Exception {
 
+        initDB();
+
         appConfig = new HashMap<>();
 
         // Get app settings
-        readAppConfig();
-
+//        readAppConfig();
+        loadAppConfig();
 
         // SpeechQueue started; Will ready up and play voices as they come
         //  if allowConsecutive is true, different people can 'talk' at the same time
         speechQueue = new SpeechQueue(true);
         new Thread(speechQueue).start();
 
-        // DB stuff; Maybe dumb to try creating tables every time, but eh. Think of this as a lazy 'liquibase' thing
-        SQLiteDataSource sqlDataSource = new SQLiteDataSource();
-        sqlDataSource.setUrl("jdbc:sqlite:janna.sqlite");
-
-        sqlCon = sqlDataSource.getConnection();
-        PreparedStatement emptyStatement = sqlCon.prepareStatement("SELECT 1 WHERE false");
-        emptyStatement.execute();
-        EMPTY_RESULT_SET = emptyStatement.getResultSet();
-
-        PreparedStatement createUserTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS user ( "
-                + " id INTEGER PRIMARY KEY AUTOINCREMENT "
-                + ", username VARCHAR(128) UNIQUE"
-                + ", voicename VARCHAR(128) DEFAULT 'en-US-Standard-B'"
-                + ", voicespeed DOUBLE DEFAULT 1"
-                + ", voicepitch DOUBLE DEFAULT 0"
-                + ", voicevolume DOUBLE DEFAULT 1"
-                + ", freevoice INTEGER DEFAULT 1"
-                + ");"
-        );
-        createUserTable.execute();
-
-        PreparedStatement createPrefTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS pref ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", name VARCHAR(128) UNIQUE"
-                + ");"
-        );
-        createPrefTable.execute();
-
-        PreparedStatement createUserPrefTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS user_pref ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", user_id INTEGER"
-                + ", pref_id INTEGER"
-                + ", data VARCHAR(1024)"
-                + ");"
-        );
-        createUserPrefTable.execute();
-        addPref("butt_stuff");
-
-        PreparedStatement createAuthTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS auth ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", token VARCHAR(1024)"
-                + ");"
-        );
-        createAuthTable.execute();
-
-        PreparedStatement createReactionTable = sqlCon.prepareStatement("CREATE TABLE IF NOT EXISTS reaction ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", type VARCHAR(128)"
-                + ", phrase VARCHAR(128) UNIQUE"
-                + ", result VARCHAR(1024)"
-                + ", extra VARCHAR(1024)"
-                + ");"
-        );
-        createReactionTable.execute();
+        // Start a thread to clean up old temp files
+        cleanupQueue = new CleanupQueue();
+        new Thread(cleanupQueue).start();
 
         // Load reaction stuff
         loadReactions();
+
+        // Load mutelist stuff
+        loadMuteList();
 
 
         // Get credentials for logging into chat
@@ -358,67 +578,135 @@ public class Janna extends JPanel {
         // Get Helix auth token (With Kraken api dead, this is really critical)
         Auth.getToken();
 
-        // Add supported voices - TODO: Move to config.ini or something
-        voiceNames.add("en-AU-Standard-A");
-        voiceNames.add("en-AU-Standard-C");
-        voiceNames.add("en-AU-Standard-B");
-        voiceNames.add("en-AU-Standard-D");
-        voiceNames.add("en-GB-Standard-A");
-        voiceNames.add("en-GB-Standard-C");
-        voiceNames.add("en-GB-Standard-F");
-        voiceNames.add("en-GB-Standard-B");
-        voiceNames.add("en-GB-Standard-D");
-        voiceNames.add("en-IN-Standard-A");
-        voiceNames.add("en-IN-Standard-D");
-        voiceNames.add("en-IN-Standard-B");
-        voiceNames.add("en-IN-Standard-C");
-        voiceNames.add("en-US-Standard-C");
-        voiceNames.add("en-US-Standard-E");
-        voiceNames.add("en-US-Standard-G");
-        voiceNames.add("en-US-Standard-H");
-        voiceNames.add("en-US-Standard-B");
-        voiceNames.add("en-US-Standard-D");
-        voiceNames.add("en-US-Standard-I");
-        voiceNames.add("en-US-Standard-J");
-
-        // TODO: This obviously shouldn't be hardcoded. Work into a /mute command and store in DB
-        muteList.add("ircbot610");
-        muteList.add("buttsbot");
-        muteList.add("saltlogic");
-        muteList.add("streamlabs");
-        muteList.add("streamelements");
+        if (ttsMode.equalsIgnoreCase("google")) {
+            voiceNames.addAll(Arrays.asList
+                    ("en-AU-Standard-A", "en-AU-Standard-C", "en-AU-Standard-B", "en-AU-Standard-D", "en-GB-Standard-A",
+                            "en-GB-Standard-C", "en-GB-Standard-F", "en-GB-Standard-B", "en-GB-Standard-D",
+                            "en-IN-Standard-A", "en-IN-Standard-D", "en-IN-Standard-B", "en-IN-Standard-C",
+                            "en-US-Standard-C", "en-US-Standard-E", "en-US-Standard-G", "en-US-Standard-H",
+                            "en-US-Standard-B", "en-US-Standard-D", "en-US-Standard-I", "en-US-Standard-J"));
+        } else if (ttsMode.equalsIgnoreCase("se")) {
+            voiceNames.addAll(Arrays.asList
+                    ("Filiz", "Astrid", "Tatyana", "Maxim", "Carmen", "Ines", "Cristiano", "Vitoria", "Ricardo",
+                            "Maja", "Jan", "Jacek", "Ewa", "Ruben", "Lotte", "Liv", "Seoyeon", "Takumi", "Mizuki",
+                            "Giorgio", "Carla", "Bianca", "Karl", "Dora", "Mathieu", "Celine", "Chantal", "Penelope",
+                            "Miguel", "Mia", "Enrique", "Conchita", "Geraint", "Salli", "Matthew", "Kimberly", "Kendra",
+                            "Justin", "Joey", "Joanna", "Ivy", "Raveena", "Aditi", "Emma", "Brian", "Amy", "Russell",
+                            "Nicole", "Vicki", "Marlene", "Hans", "Naja", "Mads", "Gwyneth", "Zhiyu",
+                            /*"es-LA_SofiaVoice", "pt-BR_IsabelaVoice", "en-US_MichaelVoice", "ja-JP_EmiVoice",
+                            "en-US_AllisonVoice", "fr-FR_ReneeVoice", "it-IT_FrancescaVoice", "es-ES_LauraVoice",
+                            "de-DE_BirgitVoice", "es-ES_EnriqueVoice", "de-DE_DieterVoice", "en-US_LisaVoice",
+                            "en-GB_KateVoice", "es-US_SofiaVoice",*/
+                            "es-ES-Standard-A", "it-IT-Standard-A", "it-IT-Wavenet-A", "ja-JP-Standard-A", "ja-JP-Wavenet-A",
+                            "ko-KR-Standard-A", "ko-KR-Wavenet-A", "pt-BR-Standard-A", "tr-TR-Standard-A", "sv-SE-Standard-A",
+                            "nl-NL-Standard-A", "nl-NL-Wavenet-A", "en-US-Wavenet-A", "en-US-Wavenet-B", "en-US-Wavenet-C",
+                            "en-US-Wavenet-D", "en-US-Wavenet-E", "en-US-Wavenet-F", "en-GB-Standard-A", "en-GB-Standard-B",
+                            "en-GB-Standard-C", "en-GB-Standard-D", "en-GB-Wavenet-A", "en-GB-Wavenet-B", "en-GB-Wavenet-C",
+                            "en-GB-Wavenet-D", "en-US-Standard-B", "en-US-Standard-C", "en-US-Standard-D", "en-US-Standard-E",
+                            "de-DE-Standard-A", "de-DE-Standard-B", "de-DE-Wavenet-A", "de-DE-Wavenet-B", "de-DE-Wavenet-C",
+                            "de-DE-Wavenet-D", "en-AU-Standard-A", "en-AU-Standard-B", "en-AU-Wavenet-A", "en-AU-Wavenet-B",
+                            "en-AU-Wavenet-C", "en-AU-Wavenet-D", "en-AU-Standard-C", "en-AU-Standard-D", "fr-CA-Standard-A",
+                            "fr-CA-Standard-B", "fr-CA-Standard-C", "fr-CA-Standard-D", "fr-FR-Standard-C", "fr-FR-Standard-D",
+                            "fr-FR-Wavenet-A", "fr-FR-Wavenet-B", "fr-FR-Wavenet-C", "fr-FR-Wavenet-D", "da-DK-Wavenet-A",
+                            "pl-PL-Wavenet-A", "pl-PL-Wavenet-B", "pl-PL-Wavenet-C", "pl-PL-Wavenet-D", "pt-PT-Wavenet-A",
+                            "pt-PT-Wavenet-B", "pt-PT-Wavenet-C", "pt-PT-Wavenet-D", "ru-RU-Wavenet-A", "ru-RU-Wavenet-B",
+                            "ru-RU-Wavenet-C", "ru-RU-Wavenet-D", "sk-SK-Wavenet-A", "tr-TR-Wavenet-A", "tr-TR-Wavenet-B",
+                            "tr-TR-Wavenet-C", "tr-TR-Wavenet-D", "tr-TR-Wavenet-E", "uk-UA-Wavenet-A", "ar-XA-Wavenet-A",
+                            "ar-XA-Wavenet-B", "ar-XA-Wavenet-C", "cs-CZ-Wavenet-A", "nl-NL-Wavenet-B", "nl-NL-Wavenet-C",
+                            "nl-NL-Wavenet-D", "nl-NL-Wavenet-E", "en-IN-Wavenet-A", "en-IN-Wavenet-B", "en-IN-Wavenet-C",
+                            "fil-PH-Wavenet-A", "fi-FI-Wavenet-A", "el-GR-Wavenet-A", "hi-IN-Wavenet-A", "hi-IN-Wavenet-B",
+                            "hi-IN-Wavenet-C", "hu-HU-Wavenet-A", "id-ID-Wavenet-A", "id-ID-Wavenet-B", "id-ID-Wavenet-C",
+                            "it-IT-Wavenet-B", "it-IT-Wavenet-C", "it-IT-Wavenet-D", "ja-JP-Wavenet-B", "ja-JP-Wavenet-C",
+                            "ja-JP-Wavenet-D", "cmn-CN-Wavenet-A", "cmn-CN-Wavenet-B", "cmn-CN-Wavenet-C", "cmn-CN-Wavenet-D",
+                            "nb-no-Wavenet-E", "nb-no-Wavenet-A", "nb-no-Wavenet-B", "nb-no-Wavenet-C", "nb-no-Wavenet-D",
+                            "vi-VN-Wavenet-A", "vi-VN-Wavenet-B", "vi-VN-Wavenet-C", "vi-VN-Wavenet-D", "sr-rs-Standard-A",
+                            "lv-lv-Standard-A", "is-is-Standard-A", "bg-bg-Standard-A", "af-ZA-Standard-A",
+                            "Tracy", "Danny", "Huihui", "Yaoyao", "Kangkang", "HanHan", "Zhiwei", "Asaf", "An",
+                            "Stefanos", "Filip", "Ivan", "Heidi", "Herena", "Kalpana", "Hemant", "Matej", "Andika",
+                            "Rizwan", "Lado", "Valluvar", "Linda", "Heather", "Sean", "Michael", "Karsten", "Guillaume",
+                            "Pattara", "Jakub", "Szabolcs", "Hoda", "Naayf"));
+        }
 
         // Speech/text to verify that Janna is alive and well (Hopefully!)
         // TODO: Make 'initialized' phrase configurable
-        new Voice("Is Google text to speech working and stuff?", null);
+        if (ttsMode.equalsIgnoreCase("google")) {
+            new Voice("Is Google text to speech working and stuff?", null); // Breaks on first-time auth?
+        } else if (ttsMode.equalsIgnoreCase("se")) {
+            new SeVoice(null, new TTSMessage("message", "Is StreamElements text to speech"), new TTSMessage("message", "working and stuff?"));
+        }
         info("Beware I live");
     }
 
-    private ResultSet getReaction(String type) {
-        try {
-            PreparedStatement getReactions = sqlCon.prepareStatement("SELECT * FROM reaction WHERE type=?;");
-            getReactions.setString(1, type);
-            getReactions.execute();
-            return getReactions.getResultSet();
-        } catch (SQLException ex) {
-            error("SQL Exception while getting reactions for type: " + type,ex);
-        }
-        return EMPTY_RESULT_SET;
-    }
+    private void initDB() throws Exception {
+        if (sqlCon != null) return; // Don't re-init if attempted
 
-    private ResultSet getReactions() {
-        try {
-            PreparedStatement getReactions = sqlCon.prepareStatement("SELECT * FROM reaction;");
-            return getReactions.executeQuery();
-        } catch (SQLException ex) {
-            error("SQL Exception while getting reactions", ex);
-        }
-        return EMPTY_RESULT_SET;
+        // DB stuff; Maybe dumb to try creating tables every time, but eh. Think of this as a lazy 'liquibase' thing
+        SQLiteDataSource sqlDataSource = new SQLiteDataSource();
+        sqlDataSource.setUrl("jdbc:sqlite:janna.sqlite");
+
+        sqlCon = sqlDataSource.getConnection();
+        PreparedStatement emptyStatement = sqlCon.prepareStatement("SELECT 1 WHERE false");
+        emptyStatement.execute();
+        EMPTY_RESULT_SET = emptyStatement.getResultSet();
+
+        executeUpdate("CREATE TABLE IF NOT EXISTS user ( "
+                + " id INTEGER PRIMARY KEY AUTOINCREMENT "
+                + ", username VARCHAR(128) UNIQUE"
+                + ", voicename VARCHAR(128) DEFAULT 'en-US-Standard-B'"
+                + ", voicespeed DOUBLE DEFAULT 1"
+                + ", voicepitch DOUBLE DEFAULT 0"
+                + ", voicevolume DOUBLE DEFAULT 1"
+                + ", freevoice INTEGER DEFAULT 1"
+                + ");"
+        );
+
+        executeUpdate("CREATE TABLE IF NOT EXISTS pref ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", name VARCHAR(128) UNIQUE"
+                + ");"
+        );
+
+        executeUpdate("CREATE TABLE IF NOT EXISTS user_pref ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", user_id INTEGER"
+                + ", pref_id INTEGER"
+                + ", data VARCHAR(1024)"
+                + ");"
+        );
+        addPref("butt_stuff");
+        executeUpdate("CREATE TABLE IF NOT EXISTS auth ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", token VARCHAR(1024)"
+                + ");"
+        );
+
+        executeUpdate("CREATE TABLE IF NOT EXISTS reaction ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", type VARCHAR(128)"
+                + ", phrase VARCHAR(128) UNIQUE"
+                + ", result VARCHAR(1024)"
+                + ", extra VARCHAR(1024)"
+                + ");"
+        );
+
+        executeUpdate("CREATE TABLE IF NOT EXISTS muted_username ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", username VARCHAR(128) UNIQUE"
+                + ", expiry INTEGER"
+                + ");"
+        );
+
+        executeUpdate("CREATE TABLE IF NOT EXISTS appconfig ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", param VARCHAR(128) UNIQUE"
+                + ", value VARCHAR(128)"
+                + ");"
+        );
     }
 
     private void loadReactions() {
         try {
-            ResultSet result = getReactions();
+            ResultSet result = executeQuery("SELECT * FROM reaction");
             if (result.isClosed()) return;
 
             do {
@@ -430,13 +718,63 @@ public class Janna extends JPanel {
                 if (type.equalsIgnoreCase("filter")) {
                     filterList.put(key, value);
                 } else if (type.equalsIgnoreCase("sfx")) {
-                    sfxList.put(key, value);
+                    sfxList.put(key, new Sfx(value, (null == extra ? "" : extra)));
                 } else if (type.equalsIgnoreCase("response")) {
                     responseList.put(key,value);
                 }
             } while (result.next());
         } catch (Exception ex) {
             error("Failed to load reactions from DB", ex);
+        }
+    }
+
+    private void loadMuteList() {
+        try {
+            ResultSet result = executeQuery("SELECT * FROM muted_username;");
+            if (result.isClosed()) return;
+
+            do {
+                String username = result.getString("username");
+                long expiry = result.getLong("expiry");
+
+                muteList.put(username, expiry);
+            } while (result.next());
+        } catch (Exception ex) {
+            error("Failed to load reactions from DB", ex);
+        }
+    }
+
+    private void loadAppConfig() {
+
+        try {
+            ResultSet result = executeQuery("SELECT * FROM appconfig;");
+            if (result.isClosed()) return;
+
+            do {
+                String param = result.getString("param");
+                String value = result.getString("value");
+                appConfig.put(param, value);
+            } while (result.next());
+
+            Creds._username = appConfig.get("username");
+            Creds._password = appConfig.get("oauth");
+
+            setEmoteHandleMethod(appConfig.get("emotehandle"));
+            setWindowPos(appConfig.get("windowpos"));
+
+        } catch (Exception ex) {
+            error("Failed to load appConfig from DB", ex);
+        }
+    }
+
+    private void setWindowPos(String windowpos) {
+        if (null == windowpos) return;
+        try {
+            String[] split = windowpos.split(",");
+            parent.setLocation(Integer.parseInt(split[0]), Integer.parseInt(split[1]));
+        } catch (NumberFormatException ex) {
+            // Shouldn't be possible, user input not involved
+            error("Error setting window position", ex);
         }
     }
 
@@ -573,11 +911,20 @@ public class Janna extends JPanel {
         );
 
         generateTTSReward(
-                "*NEWCOMERS ONLY* TTS: Set my voice accent",
-                "You can only do this once! Pick a base TTS voice from this list (eg: en-GB-Standard-A): https://docs.google.com/spreadsheets/d/1hrhoy3yoLjKE_N_XgHwG8qFAWWxMch6CerqV2xX-XOs",
+                "TTS: Set voice accent (Free)",
+                "You can only do this if you're new here! Pick a base TTS voice from this list (eg: en-GB-Standard-A): https://docs.google.com/spreadsheets/d/1hrhoy3yoLjKE_N_XgHwG8qFAWWxMch6CerqV2xX-XOs",
                 300,
                 "#94FA3A",
                 true,
+                true
+        );
+
+        generateTTSReward(
+                "TTS: Reset my voice (Speed/Pitch)",
+                "Instead of paying a bunch of times, pay a bit, one time, to go back to base pitch/speed",
+                1024,
+                "#350035",
+                false,
                 true
         );
     }
@@ -715,12 +1062,24 @@ public class Janna extends JPanel {
         }
         // The way this is intended to work is: New people get 1 'free' accent change, subsequent changes are
         //  considerably more expensive, to keep people from confusing the streamer with constant significant changes
-        else if (reward.equalsIgnoreCase("*NEWCOMERS ONLY* TTS: Set my voice accent")) {
+        else if (reward.equalsIgnoreCase("TTS: Set voice accent (Free)")) {
             if (currentUser.freeVoice > 0) {
-                redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel,true);
+                // Don't redeem it, just require the 300 points to motivate follows
+                changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel,true);
+                redeemed = 0;
             }
             else {
                 sendMessage(channel,"Scam detected. I'm keeping those channel points.  (@" + currentUser.name + ")");
+                redeemed = 1;
+            }
+        } else if (reward.equalsIgnoreCase("TTS: Reset my voice (Speed/Pitch)")) {
+            if (currentUser.voicePitch == 0 && currentUser.voiceSpeed == 1) {
+                sendMessage(channel, "@"+username+", your voice is already at default speed/pitch");
+                redeemed = 0;
+            } else {
+                sendMessage(channel, "@"+username+", your voice speed/pitch have been reset!");
+                currentUser.voicePitch = 0;
+                currentUser.voiceSpeed = 1;
                 redeemed = 1;
             }
         }
@@ -800,22 +1159,25 @@ public class Janna extends JPanel {
     // Screw around with the text of a message before having it read aloud (Anti-spam measures will go here)
     public static String butcher(String s, User user) {
         String result = "";
-        s = s.toLowerCase();
+        //s = s.toLowerCase();
 
 
         for (String find : filterList.keySet()) {
             String replace = filterList.get(find);
-            s = s.replaceAll(find, replace);
+            s = s.replaceAll("(?i)"+find, replace);
         }
 
         int tempWordCount = 0;
         String tempWord = "";
         String[] words = s.split(" ");
 
+        // Sanitize for the API's sake
+        s = s.replace("&", "and");
+
         // Anti-spam and anti-annoyance measures
         for (String word : words) {
             // Limit repeated words to 3 in a row
-            if (tempWord.equals(word)) {
+            if (tempWord.equalsIgnoreCase(word)) {
                 if (++tempWordCount > 2) {
                     continue;
                 }
@@ -825,26 +1187,31 @@ public class Janna extends JPanel {
             }
 
             // Limit repeated characters to 3 in a row
-            if (word.matches("(.)(\\1){2,}")) {
-                StringBuilder sb = new StringBuilder(word);
-                char tempChar = ' ';
-                int tempCharCount = 0;
-                for (int i = 0; i < sb.length(); i++) {
-                    if (tempChar == sb.charAt(i))
-                    {
-                        tempCharCount++;
-                        if (tempCharCount > 2)
+            try {
+                if (word.matches(".*?(?i)(.)(\\1){2,}.*?")) {
+                    StringBuilder sb = new StringBuilder(word);
+                    char tempChar = ' ';
+                    int tempCharCount = 0;
+                    for (int i = 0; i < sb.length(); i++) {
+                        if (Character.toLowerCase(tempChar) == Character.toLowerCase(sb.charAt(i)))
                         {
-                            sb.deleteCharAt(i);
-                            i--;
+                            tempCharCount++;
+                            if (tempCharCount > 2)
+                            {
+                                sb.deleteCharAt(i);
+                                i--;
+                            }
                         }
+                        else {
+                            tempChar = sb.charAt(i);
+                            tempCharCount = 0;
+                        }
+                        word=sb.toString();
                     }
-                    else {
-                        tempChar = sb.charAt(i);
-                        tempCharCount = 0;
-                    }
-                    word=sb.toString();
                 }
+            } catch (IndexOutOfBoundsException ex) {
+                // Didn't realize this could happen on String.matches
+                warn("Skipping word for some reason: " + ex);
             }
             result += word + " ";
         }
@@ -987,9 +1354,14 @@ public class Janna extends JPanel {
         return true;
     }
 
-    public ResultSet executeQuery(String query) throws SQLException {
-        PreparedStatement prep = sqlCon.prepareStatement(query);
-        return prep.executeQuery();
+    public ResultSet executeQuery(String query) {
+        try {
+            PreparedStatement getReactions = sqlCon.prepareStatement(query);
+            return getReactions.executeQuery();
+        } catch (SQLException ex) {
+            error("SQL Exception while getting reactions", ex);
+        }
+        return EMPTY_RESULT_SET;
     }
 
     public int executeUpdate(String query) throws SQLException {
@@ -1007,7 +1379,6 @@ public class Janna extends JPanel {
 
     public static void debug (String s) {
         console("[DEBUG] " + s, 7);
-        //System.out.println(s);
     }
 
     public static void info (String s) {
@@ -1050,7 +1421,7 @@ public class Janna extends JPanel {
         String message = e.getMessage();
         chat(name + ": " + message);
 
-        HashMap<String, Integer> emotes = getEmotes(e);
+        HashMap<String, String> emotes = getEmotes(e);
 
         for (String phrase : responseList.keySet()) {
             if (message.toLowerCase().contains(phrase.toLowerCase())) {
@@ -1065,7 +1436,8 @@ public class Janna extends JPanel {
 
         boolean canSpeak = true;
 
-        if (muteList.contains(user.name.toLowerCase())) {
+        if (muteList.keySet().contains(user.name.toLowerCase())) {
+            // TODO: Check if mute has expired
             debug("Not speaking, user is muted");
             return;
         }
@@ -1087,44 +1459,216 @@ public class Janna extends JPanel {
             if (false) { // TODO: Read names
                 message = user.name + ": " + message;
             }
-            new Voice(ssmlify(butcher(message, user), emotes), user);
+            if (ttsMode.equalsIgnoreCase("google")) {
+                new Voice(ssmlify(butcher(message, user), emotes), user);
+            } else if (ttsMode.equalsIgnoreCase("se")) {
+                new SeVoice(
+                        user,
+                        makeTTSMessage(
+                                emotes,
+                                butcher(message, user)
+                        )
+                );
+            }
         }
         //new Speaker(message).start();
     }
 
-    // Mess with the text to do stuff like read emotes faster, or play sound effects
-    private String ssmlify(String message, HashMap<String, Integer> emotes) {
-        // Sanitize so peeps don't do bad custom SSML
-        message = message.replace("<", "less than").replace(">", "greater than");
+    private TTSMessage[] makeTTSMessage(HashMap<String, String> emotes, String message) {
+
+        ArrayList<TTSMessage> messages = new ArrayList<>();
+
         int emoteCount = 0;
         for (String emote : emotes.keySet()) {
-            emoteCount += emotes.get(emote);
-        }
-        for (String emote : emotes.keySet()) {
-            // The more times an emote shows up in a message, the faster it'll be read, to discourage spam, maybe.
-            message = message.replace(emote, "<prosody rate=\""+(150+25*emoteCount)+"%\" volume=\""+(-2-1*emoteCount)+"dB\">" + emote + "</prosody>");
+            emoteCount += emotes.get(emote).split(",").length;
         }
 
-        // Handle sfx - Only play the first to avoid unholy noise spam
-        int soundPos = Integer.MAX_VALUE;
-        String find = "";
-        String replace = "";
-        for (String key : sfxList.keySet()) {
-            if (message.contains(key) && message.indexOf(key) < soundPos) {
-                soundPos = message.indexOf(key);
-                find=key;
-                replace = "<audio src=\""+sfxList.get(find)+"\" >"+find+"</audio>";
+        String emoteHandleMethod = appConfig.get("emotehandle");
+        if (!emoteHandleMethod.equalsIgnoreCase("Default") && emotes.keySet().size() > 0) {
+            // The more times an emote shows up in a message, the faster it'll be read, to discourage spam, maybe.
+            // * Likely not supported using StreamElements TTS
+            if (emoteHandleMethod.equalsIgnoreCase("Fast emotes")) {
+                for (String emote : emotes.keySet()) {
+                    message = message.replace(emote, "<prosody rate=\"" + (150 + 25 * emoteCount) + "%\" volume=\"" + (-2 - 1 * emoteCount) + "dB\">" + emote + "</prosody>");
+                }
+            } else if (emoteHandleMethod.equalsIgnoreCase("First only")) {
+                int firstEmotePos = message.length();
+                String firstEmote = "";
+                for (String emote : emotes.keySet()) {
+                    String[] split = emotes.get(emote).split("(-|,)", 3);
+                    try {
+                        // Grab the end position of the emote for substring purposes
+                        int pos = Integer.parseInt(split[1]);
+                        if (pos < firstEmotePos) {
+                            firstEmotePos = pos;
+                            firstEmote = emote;
+                        }
+                    } catch (NumberFormatException ex) {
+                        // Shouldn't be possible, but eh
+                        error("Number format exception finding index of first emote", ex);
+                    }
+                }
+                for (String emote : emotes.keySet()) {
+                    if (emote.equalsIgnoreCase(firstEmote)) {
+                        String half1 = message.substring(0, firstEmotePos);
+                        String half2 = message.substring(firstEmotePos).replaceAll("\\b" + emote + "\\b", "");
+                        message = half1 + half2;
+                    } else {
+                        message = message.replaceAll("\\b" + emote + "\\b", "");
+                    }
+                }
+            } else if (emoteHandleMethod.equalsIgnoreCase("First of each")) {
+                for (String emote : emotes.keySet()) {
+                    try {
+                        Matcher matcher = Pattern.compile(emote).matcher(message);
+                        matcher.find();
+                        int pos = matcher.start() + emote.length();
+                        String half1 = message.substring(0, pos);
+                        String half2 = message.substring(pos).replaceAll("\\b" + emote + "\\b", "");
+                        message = half1 + half2;
+                    } catch (Exception ex) {
+                        warn(ex.toString());
+                    }
+                }
             }
         }
 
-        message = message.replaceFirst(find, replace);
+
+
+
+        // Handle sfx - Only play the first to avoid unholy noise spam
+        int soundPos = message.length(), cursor = 0;
+        String find = "";
+        String replace = "";
+
+        for (String key : sfxList.keySet()) {
+            cursor = 0;
+            boolean matches = message.toLowerCase().contains(key.toLowerCase());
+            int index = message.toLowerCase().indexOf(key.toLowerCase());
+            if (matches && index < soundPos) {
+                String subMessage = message.substring(0,Math.min(message.length(), soundPos)).toLowerCase();
+                for (String word : subMessage.split(" ")) {
+                    // Only match full words
+                    if (word.equalsIgnoreCase(key)) {
+                        soundPos = cursor + subMessage.substring(cursor).indexOf(key);
+                        find=key;
+                        replace = "";
+                        break;
+                    } else {
+                        cursor += 1 + word.length();
+                    }
+                }
+            }
+        }
+
+        String half1 = message.substring(0, soundPos).trim(),
+                half2 = message.substring(soundPos).replaceFirst("(?i)"+find, replace).trim();
+        if (!half1.isEmpty()) messages.add(new TTSMessage("message", half1));
+        if (!find.isEmpty()) {
+            messages.add(new TTSMessage("sfx", sfxList.get(find), find));
+        }
+        if (!half2.isEmpty()) messages.add(new TTSMessage("message", half2));
+
+
+
+
+        return messages.toArray(new TTSMessage[0]);
+    }
+
+    // Mess with the text to do stuff like read emotes faster, or play sound effects
+    //  * Google cloud stuff - Keeping duplicated code for now, but will probably be scrapped
+    private String ssmlify(String message, HashMap<String, String> emotes) {
+        // Sanitize so peeps don't do bad custom SSML
+        message = message.replace("<", "less than").replace(">", "greater than");
+
+        int emoteCount = 0;
+        for (String emote : emotes.keySet()) {
+            emoteCount += emotes.get(emote).split(",").length;
+        }
+
+        String emoteHandleMethod = appConfig.get("emotehandle");
+        if (!emoteHandleMethod.equalsIgnoreCase("Default") && emotes.keySet().size() > 0) {
+            // The more times an emote shows up in a message, the faster it'll be read, to discourage spam, maybe.
+            if (emoteHandleMethod.equalsIgnoreCase("Fast emotes")) {
+                for (String emote : emotes.keySet()) {
+                    message = message.replace(emote, "<prosody rate=\"" + (150 + 25 * emoteCount) + "%\" volume=\"" + (-2 - 1 * emoteCount) + "dB\">" + emote + "</prosody>");
+                }
+            } else if (emoteHandleMethod.equalsIgnoreCase("First only")) {
+                int firstEmotePos = message.length();
+                String firstEmote = "";
+                for (String emote : emotes.keySet()) {
+                    String[] split = emotes.get(emote).split("(-|,)", 3);
+                    try {
+                        // Grab the end position of the emote for substring purposes
+                        int pos = Integer.parseInt(split[1]);
+                        if (pos < firstEmotePos) {
+                            firstEmotePos = pos;
+                            firstEmote = emote;
+                        }
+                    } catch (NumberFormatException ex) {
+                        // Shouldn't be possible, but eh
+                        error("Number format exception finding index of first emote", ex);
+                    }
+                }
+                for (String emote : emotes.keySet()) {
+                    if (emote.equalsIgnoreCase(firstEmote)) {
+                        String half1 = message.substring(0, firstEmotePos);
+                        String half2 = message.substring(firstEmotePos).replaceAll("\\b" + emote + "\\b", "");
+                        message = half1 + half2;
+                    } else {
+                        message = message.replaceAll("\\b" + emote + "\\b", "");
+                    }
+                }
+            } else if (emoteHandleMethod.equalsIgnoreCase("First of each")) {
+                for (String emote : emotes.keySet()) {
+                    try {
+                        Matcher matcher = Pattern.compile(emote).matcher(message);
+                        matcher.find();
+                        int pos = matcher.start() + emote.length();
+                        String half1 = message.substring(0, pos);
+                        String half2 = message.substring(pos).replaceAll("\\b" + emote + "\\b", "");
+                        message = half1 + half2;
+                    } catch (Exception ex) {
+                        warn(ex.toString());
+                    }
+                }
+            }
+        }
+
+        // Handle sfx - Only play the first to avoid unholy noise spam
+        int soundPos = message.length(), cursor = 0;
+        String find = "";
+        String replace = "";
+
+        for (String key : sfxList.keySet()) {
+            cursor = 0;
+            boolean matches = message.toLowerCase().contains(key.toLowerCase());
+            int index = message.toLowerCase().indexOf(key.toLowerCase());
+            if (matches && index < soundPos) {
+                String subMessage = message.substring(0,Math.min(message.length(), soundPos)).toLowerCase();
+                for (String word : subMessage.split(" ")) {
+                    // Only match full words
+                    if (word.equalsIgnoreCase(key)) {
+                        soundPos = cursor + subMessage.substring(cursor).indexOf(key);
+                        find=key;
+                        replace = "<audio src=\""+sfxList.get(find).url+"\" " + sfxList.get(find).extra + ">"+find+"</audio>";
+                        break;
+                    } else {
+                        cursor += 1 + word.length();
+                    }
+                }
+            }
+        }
+
+        String half1 = message.substring(0, soundPos), half2 = message.substring(soundPos).replaceFirst("(?i)"+find, replace);
+        message = half1 + half2;
 
         return "<speak>" + message + "</speak>";
     }
 
     // Gracefully borrowed from the Twitch4J discord server
-    private HashMap<String, Integer> getEmotes(ChannelMessageEvent e) {
-        HashMap<String, Integer> emoteList = new HashMap<>();
+    private HashMap<String, String> getEmotes(ChannelMessageEvent e) {
+        HashMap<String, String> emoteList = new HashMap<>();
             final String msg = e.getMessage();
             final int msgLength = msg.length();
             e.getMessageEvent().getTagValue("emotes")
@@ -1140,10 +1684,10 @@ public class Janna extends JPanel {
                                 final int startIndex = Math.max(Integer.parseInt(specificIndex.substring(0, specificDelim)), 0);
                                 final int endIndex = Math.min(Integer.parseInt(specificIndex.substring(specificDelim + 1)) + 1, msgLength);
                                 final String emoteName = msg.substring(startIndex, endIndex);
-                                if (null == emoteList.get(emoteName.toLowerCase())){
-                                    emoteList.put(emoteName.toLowerCase(), 1);
+                                if (null == emoteList.get(emoteName)){
+                                    emoteList.put(emoteName, startIndex + "-" + endIndex);
                                 } else {
-                                    emoteList.put(emoteName.toLowerCase(), emoteList.get(emoteName.toLowerCase())+1);
+                                    emoteList.put(emoteName, emoteList.get(emoteName) + "," + startIndex + "-" + endIndex);
                                 }
                             }
                         }
@@ -1164,6 +1708,30 @@ public class Janna extends JPanel {
         } else if (cmd.equalsIgnoreCase("stfu")) {
             if (!isMod(user.name)) return;
             silenceAllVoices();
+        } else if (cmd.equalsIgnoreCase("mute")) {
+            if (!isMod(user.name)) return;
+            String result = "";
+            if (split.length == 1) {
+                sendMessage(channel, "Malformed command; Usage: !mute <username>"/* [duration]"*/);
+                return;
+            } else if (split.length == 2) {
+                result = muteUser(split[1], "-1");
+            } else {
+                result = muteUser(split[1], split[2]);
+            }
+            sendMessage(channel, result);
+        } else if (cmd.equalsIgnoreCase("unmute")) {
+            if (!isMod(user.name)) return;
+            String result = "";
+            if (split.length == 1) {
+                sendMessage(channel, "Malformed command; Usage: !unmute <username>");
+                return;
+            } else {
+                result = unmuteUser(split[1]);
+            }
+            if (!result.isEmpty()) {
+                sendMessage(channel, result);
+            }
         } else if (cmd.equalsIgnoreCase("janna.addsfx")) {
             if (!isMod(user.name)) return;
             addReaction("sfx", message, channel);
@@ -1182,17 +1750,83 @@ public class Janna extends JPanel {
         } else if (cmd.equalsIgnoreCase("janna.removeresponse")) {
             if (!isMod(user.name)) return;
             removeReaction("response", message, channel);
+        } else if (cmd.equalsIgnoreCase("janna.modsfx")) {
+            if (!isMod(user.name)) return;
+            modReaction("sfx", message, channel);
         }
         else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
             if (setUserPref(user, "butt_stuff", "0")) {
-                twitch.getChat().sendMessage(appConfig.get("mainchannel"), "Okay, I won't butt you, bro.");
+                twitch.getChat().sendMessage(channel, "Okay, I won't butt you, bro.");
             }
         } else if (cmd.equalsIgnoreCase("dobuttmebro")) {
             if (setUserPref(user, "butt_stuff", "1")) {
-                twitch.getChat().sendMessage(appConfig.get("mainchannel"), "Can't get enough of that butt.");
+                twitch.getChat().sendMessage(channel, "Can't get enough of that butt.");
             }
-        } else if (cmd.equalsIgnoreCase("mute")) {
-            // TODO
+        } else if (cmd.equalsIgnoreCase("voice")) {
+            sendMessage(channel, "@"+user.name + ", Your current voice is: " + user.voiceName +
+                    " (Speed: " + user.voiceSpeed + " (0.75 ~ 4.0), Pitch: " + user.voicePitch + " (-20 ~ 20)");
+        }
+    }
+
+    private String muteUser(String username, String expiry) {
+        username = username.toLowerCase();
+        long expiryDate = Long.MAX_VALUE;
+        try {
+            if (!expiry.equalsIgnoreCase("-1")) {
+                expiryDate = System.currentTimeMillis() + (1000 * Long.parseLong(expiry));
+                expiry = " for " + expiry + " seconds";
+            } else {
+                expiry = " indefinitely";
+            }
+            PreparedStatement prep = sqlCon.prepareStatement("INSERT INTO muted_username ( username, expiry ) VALUES (?, ?)");
+            prep.setString(1, username);
+            prep.setLong(2, expiryDate);
+            if (prep.executeUpdate() > 0) {
+                muteList.put(username, expiryDate);
+                return username + " muted " + expiry;
+            } else {
+                return "Well that didn't work";
+            }
+        } catch (SQLException ex) {
+            if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
+                try {
+                    PreparedStatement prep2 = sqlCon.prepareStatement("UPDATE muted_username SET expiry = ? WHERE username = ?");
+                    prep2.setLong(1, expiryDate);
+                    prep2.setString(2, username);
+                    if (prep2.executeUpdate() > 0) {
+                        muteList.put(username, expiryDate);
+                        return username + " muted " + expiry;
+                    } else {
+                        return "Well that didn't work";
+                    }
+                } catch (SQLException ex2) {
+                    // Sheesh
+                    error("Failed to mute " + username, ex);
+                    return "Failed to mute "+username+": " + ex;
+                }
+            } else {
+                error("Failed to mute " + username, ex);
+                return "Failed to mute "+username+": " + ex;
+            }
+        } catch (NumberFormatException ex) {
+            return "Malformed expiry date, please specify number of seconds, or leave empty for indefinite";
+        }
+    }
+
+    private String unmuteUser(String username) {
+        username = username.toLowerCase();
+        try {
+            PreparedStatement prep = sqlCon.prepareStatement("DELETE FROM muted_username WHERE username=?");
+            prep.setString(1, username);
+            if (prep.executeUpdate() > 0) {
+                muteList.remove(username);
+                return "Unmuted " + username;
+            } else {
+                return "Well that didn't work";
+            }
+        } catch (SQLException ex) {
+            warn("Failed to unmute " + username + ", probably not muted");
+            return "";
         }
     }
 
@@ -1226,11 +1860,14 @@ public class Janna extends JPanel {
         try {
             phrase = split[1].toLowerCase();
             result = split[2];
-            String query = "INSERT INTO reaction (type, phrase, result) VALUES ('"+type+"', '"+phrase+"', '"+result+"');";
-            executeUpdate(query);
+            PreparedStatement prep = sqlCon.prepareStatement("INSERT INTO reaction (type, phrase, result) VALUES (?, ?, ?);");
+            prep.setString(1, type);
+            prep.setString(2, phrase);
+            prep.setString(3, result);
+            prep.executeUpdate();
             switch (type) {
                 case "sfx":
-                    sfxList.put(phrase, result);
+                    sfxList.put(phrase, new Sfx(result, ""));
                     sendMessage(channel,"Added SFX for phrase: " + phrase);
                     break;
                 case "filter":
@@ -1244,10 +1881,10 @@ public class Janna extends JPanel {
             }
         } catch (SQLException ex) {
             if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
-                sendMessage(channel,type + ": `"+split[1]+"` already exists");
+                sendMessage(channel,"A reaction for: `"+split[1]+"` already exists");
             } else {
                 error("Failed to insert "+type+": " + message.split(" ")[1], ex);
-                sendMessage(channel,"Failed to add "+type+": " + ex.toString());
+                sendMessage(channel,"Failed to add "+type+": " + ex);
             }
         } catch (IndexOutOfBoundsException ex) {
             warn("add " + type + " command malformatted");
@@ -1270,8 +1907,10 @@ public class Janna extends JPanel {
         String phrase = "";
         try {
             phrase = split[1].toLowerCase();
-            String query = "DELETE FROM reaction WHERE type='"+type+"' AND phrase='"+phrase+"';";
-            if (executeUpdate(query) > 0) {
+            PreparedStatement prep = sqlCon.prepareStatement("DELETE FROM reaction WHERE type=? AND phrase=?;");
+            prep.setString(1, type);
+            prep.setString(2, phrase);
+            if (prep.executeUpdate() > 0) {
                 switch (type) {
                     case "sfx":
                         sfxList.remove(phrase);
@@ -1291,7 +1930,7 @@ public class Janna extends JPanel {
             }
         } catch (SQLException ex) {
             error("Failed to remove "+type+": " + message.split(" ")[1], ex);
-            sendMessage(channel,"Failed to remove "+type+": " + ex.toString());
+            sendMessage(channel,"Failed to remove "+type+": " + ex);
         } catch (IndexOutOfBoundsException ex) {
             warn("remove " + type + " command malformatted");
             switch (type) {
@@ -1303,6 +1942,47 @@ public class Janna extends JPanel {
                     break;
                 case "response":
                     sendMessage(channel,"Malformatted command; Usage: `!janna.removeResponse <phrase> `");
+                    break;
+            }
+        }
+    }
+
+    private void modReaction(String type, String message, String channel) {
+        String[] split = message.split(" ",3);
+        String phrase = "";
+        try {
+            phrase = split[1].toLowerCase();
+            String extra = (split.length > 2 ? split[2] : "");
+            PreparedStatement prep = sqlCon.prepareStatement("UPDATE reaction SET extra=? WHERE type=? AND phrase=?;");
+            prep.setString(1, extra);
+            prep.setString(2 ,type);
+            prep.setString(3, phrase);
+            if (prep.executeUpdate() > 0) {
+                switch (type) {
+                    case "sfx":
+                        sfxList.put(phrase, new Sfx(sfxList.get(phrase).url, extra));
+                        sendMessage(channel,"Modified SFX for phrase: " + phrase);
+                        break;
+                    case "filter":
+                        break;
+                    case "response":
+                        break;
+                }
+            } else {
+                sendMessage(channel,"No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
+            }
+        } catch (SQLException ex) {
+            error("Failed to modify "+type+": " + message.split(" ")[1], ex);
+            sendMessage(channel,"Failed to modify "+type+": " + ex);
+        } catch (IndexOutOfBoundsException ex) {
+            warn("modify " + type + " command malformatted");
+            switch (type) {
+                case "sfx":
+                    sendMessage(channel,"Malformatted command; Usage: `!janna.modSfx <phrase> [param1=value1,param2=value2]");
+                    break;
+                case "filter":
+                    break;
+                case "response":
                     break;
             }
         }
