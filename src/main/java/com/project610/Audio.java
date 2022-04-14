@@ -17,7 +17,7 @@ import static com.project610.Janna.*;
 // WIN: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z
 public class Audio {
 
-    public static String ffmpegPath = "ffmpeg-5.0.1-essentials_build\\bin\\ffmpeg ";
+    public static String ffmpegPath = "ffmpeg\\bin\\ffmpeg ";
     private static Runtime runtime = Runtime.getRuntime();
     public static String desiredExt = ".wav";
 
