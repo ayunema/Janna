@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
 import static com.project610.Janna.*;
@@ -20,7 +21,7 @@ public class Audio {
     private static Runtime runtime = Runtime.getRuntime();
     public static String desiredExt = ".wav";
 
-    public static String concat(String username, ArrayList<String> filenames) {
+    public static String concat(String username, TreeMap<String, String> filenames) {
         int rand = (int)(Math.random()*100000);
         String out = "temp/se_concat-"+rand+desiredExt;
 
@@ -29,18 +30,16 @@ public class Audio {
         Path fileList = Paths.get(fileListName);
         ArrayList<String> converted = new ArrayList<>();
         try {
-            for (String filename : filenames) {
+            for (String filename : filenames.keySet()) {
                 String name = "";
-                boolean keepFile = false;
                 String newName = "";
                 if (filename.indexOf("temp/rawtext-") == 0) {
                     name = "temp/"+filename.substring(13);
-                    newName = convert(filename, name);
+                    newName = convert(filename, name, "");
                     converted.add(newName);
                 } else if (filename.indexOf("temp/rawsfx-") == 0) {
                     name = "sfx/"+filename.substring(12);
-                    keepFile = true;
-                    newName = convert(filename, name);
+                    newName = convert(filename, name, filenames.get(filename));
                 } else {
                     newName = filename;
                 }
@@ -105,11 +104,13 @@ public class Audio {
         }
     }
 
-    public static String convert(String src, String dst) {
+    public static String convert(String src, String dst, String extra) {
         try {
             String newName = dst.substring(0, dst.lastIndexOf('.')) + desiredExt;
-            String cmd = appConfig.get("ffmpegpath") + " -i " + src + " -af \"aformat=sample_fmts=s16:sample_rates=24000\" -ac 1 " +
-                    newName;
+            String cmd =
+                    appConfig.get("ffmpegpath") +
+                            " -i " + src + " -af \"aformat=sample_fmts=s16:sample_rates=24000\" -ac 1 " +
+                            extra + " " + newName;
             runCmd(cmd);
             cleanupQueue.queue.add(src);
             return newName;

@@ -19,21 +19,37 @@ public class Sfx {
 
     public static String parseParam(String s) {
         String[] split = s.split("=", 2);
-        String key = split[0], value = (split.length > 1 ? "=\"" + split[1] + "\"" : "");
+        String key = split[0], value = (split.length > 1 ? split[1] : "");
         if (key.equalsIgnoreCase("volume") || key.equalsIgnoreCase("soundlevel")) {
-            key = "soundLevel";
+            value = value.replaceAll("(?i)db", "");
+            if (Janna.ttsMode.equalsIgnoreCase("google")) {
+                key = "soundLevel";
+            }
+            else if (Janna.ttsMode.equalsIgnoreCase("se")) {
+                key = "-filter:a \"volume=";
+            }
             try {
-                value = value.replaceFirst("(?i)db", "dB");
-                // Set a reasonable maximum (+15dB)
-                if (value.matches("(?i)=\\\"\\+\\d+db\\\"")) {
+                if (key.equalsIgnoreCase("soundLevel")) {
+                    // Set a reasonable maximum (+20dB)
                     try {
-                        double db = Double.parseDouble(value.substring(value.indexOf("+")+1, value.indexOf("dB")));
-                        if (db > 15) {
-                            value = "=\"+15dB\"";
+                        double db = Double.parseDouble(value);
+                        if (db > 20) {
+                            value = "20";
                         }
                     } catch (NumberFormatException ex) {
                         value = "";
                     }
+                    value = "=\"" + value + "dB\"";
+                } else if (key.equalsIgnoreCase("-filter:a \"volume=")) {
+                    try {
+                        double db = Double.parseDouble(value);
+                        if (db > 20) {
+                            value = "20";
+                        }
+                    } catch (NumberFormatException ex) {
+                        value = "";
+                    }
+                    value = value + "dB\"";
                 }
             } catch (Exception ex) { }
         }

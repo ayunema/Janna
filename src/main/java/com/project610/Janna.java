@@ -2021,8 +2021,11 @@ public class Janna extends JPanel {
             if (prep.executeUpdate() > 0) {
                 switch (type) {
                     case "sfx":
-                        sfxList.put(phrase, new Sfx(sfxList.get(phrase).url, extra));
+                        String url = sfxList.get(phrase).url;
+                        sfxList.put(phrase, new Sfx(url, extra));
                         sendMessage(channel,"Modified SFX for phrase: " + phrase);
+                        // Delete cached thing, since mods are applied on initial convert
+                        cleanupQueue.queue.add("sfx/" + url.substring(url.lastIndexOf("/")+1));
                         break;
                     case "filter":
                         break;

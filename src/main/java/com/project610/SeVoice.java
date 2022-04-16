@@ -20,6 +20,7 @@ import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.TreeMap;
 
 import static com.project610.Janna.*;
 
@@ -53,7 +54,7 @@ public class SeVoice {
         }
         String baseUrl = "https://api.streamelements.com/kappa/v2/speech?voice="
                 + voiceName + "&text=";
-        ArrayList<String> outFiles = new ArrayList<>();
+        TreeMap<String, String> outFiles = new TreeMap<>();
         for (TTSMessage message : messages) {
             if ("sfx".equalsIgnoreCase(message.type) && !message.text.isEmpty()) {
                 String expectedName = "sfx/" + message.text.substring(message.text.lastIndexOf("/") + 1);
@@ -62,12 +63,12 @@ public class SeVoice {
                 if (!Files.exists(Paths.get(expectedName))) {
                     try {
                         downloadFile(new URL(message.text), new File(filename));
-                        outFiles.add(filename);
+                        outFiles.put(filename, message.extra);
                     } catch (Exception ex) {
                         error("HHHHHHHHHHHH", ex);
                     }
                 } else {
-                    outFiles.add(expectedName);
+                    outFiles.put(expectedName, message.extra);
                 }
             } else if ("message".equalsIgnoreCase(message.type) && !message.text.isEmpty()) {
                 String filename = "temp/rawtext-se-output-" + System.currentTimeMillis() + "-" + (int) (Math.random() * 1000) + ".mp3";
@@ -78,7 +79,7 @@ public class SeVoice {
                     /////////// FileUtils.copyURLToFile(urlEncode(EmojiParser.parseToAliases(baseUrl + message.text)), new File(filename));
                     downloadFile(new URL(baseUrl + message.text), new File(filename));
 //                    FileUtils.copyURLToFile(new URL (EmojiParser.parseToAliases(baseUrl + message.text)), new File(filename));
-                    outFiles.add(filename);
+                    outFiles.put(filename, "");
                 } catch (Exception ex) {
                     error("GGGGGGGGGGG", ex);
                 }
