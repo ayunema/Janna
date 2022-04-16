@@ -12,7 +12,7 @@ Janna has cool features, like different voices for different users (Accent/Pitch
   * If you've got it already, you can locate the executable/binary on your system with Config>Locate FFMPEG Executable.
   * If not, you can Config > Download FFMPEG (On Windows, this'll automatically download. Haven't got that going for Mac/Linux right now)
 
-So basically, just download the .jar over in Releases and run it. The app will take you through the rest of the setup.
+So basically, just download the .jar over in [Releases](https://github.com/Virus610/Janna/releases) and run it. The app will take you through the rest of the setup.
 
 ___
 
