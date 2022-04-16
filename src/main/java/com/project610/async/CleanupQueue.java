@@ -19,10 +19,10 @@ public class CleanupQueue implements Runnable {
                     if (Files.deleteIfExists(Paths.get(current))) {
                         debug("Cleaned up file: " + current);
                     }
-                    queue.remove(0);
                 } catch (Exception ex) {
                     error("Error cleaning up file: " + current, ex);
                 }
+                queue.remove(0);
             }
             try {
                 Thread.sleep(100);

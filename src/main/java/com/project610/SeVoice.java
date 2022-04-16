@@ -21,13 +21,18 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 
-import static com.project610.Janna.error;
+import static com.project610.Janna.*;
 
 public class SeVoice {
     public PlaySound sound;
 
     public SeVoice(User user, TTSMessage... messages) {
         if (messages.length == 0) return;
+        if (null == appConfig.get("ffmpegpath")) {
+            warn("Unable to process TTS audio without FFMPEG.\nClick Config > FFMPEG > Download, or\n" +
+                    "Click Config > FFMPEG > Locate FFMPEG if already installed");
+            return;
+        }
 
         // Make temp/sfx dirs if DNE
         File dir = new File("temp");

@@ -14,10 +14,8 @@ import java.util.concurrent.TimeUnit;
 
 import static com.project610.Janna.*;
 
-// WIN: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.7z
 public class Audio {
 
-    public static String ffmpegPath = "ffmpeg\\bin\\ffmpeg ";
     private static Runtime runtime = Runtime.getRuntime();
     public static String desiredExt = ".wav";
 
@@ -62,7 +60,7 @@ public class Audio {
             double voicePitch = (user == null ? 1 : (1+user.voicePitch / 25));
             double voiceSpeed = (user == null ? 1 : user.voiceSpeed);
             String pitchSpeed = "-af asetrate=24000*"+voicePitch+",aresample=24000,atempo=1/"+voicePitch+"*"+voiceSpeed;
-            String cmd = ffmpegPath + "-f concat -safe 0 -y -i " + fileListName + " " + pitchSpeed + " " + out;
+            String cmd = appConfig.get("ffmpegpath") + " -f concat -safe 0 -y -i " + fileListName + " " + pitchSpeed + " " + out;
 
             runCmd(cmd);
 
@@ -73,6 +71,10 @@ public class Audio {
             Path expected = Paths.get(out);
             for (int i = 0; i < 400 && !Files.exists(expected); i++) {
                 Thread.sleep(10);
+            }
+            if (!Files.exists(expected)) {
+                warn("Couldn't read message, file not written after 4 seconds: " + expected);
+                return "";
             }
 
             Janna.speechQueue.sounds.add(new PlaySound(username, out));
@@ -99,7 +101,7 @@ public class Audio {
     public static String convert(String src, String dst) {
         try {
             String newName = dst.substring(0, dst.lastIndexOf('.')) + desiredExt;
-            String cmd = ffmpegPath + "-i " + src + " -af \"aformat=sample_fmts=s16:sample_rates=24000\" -ac 1 " +
+            String cmd = appConfig.get("ffmpegpath") + " -i " + src + " -af \"aformat=sample_fmts=s16:sample_rates=24000\" -ac 1 " +
                     newName;
             runCmd(cmd);
             cleanupQueue.queue.add(src);

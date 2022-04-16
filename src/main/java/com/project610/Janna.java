@@ -4,10 +4,11 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.net.Socket;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -16,6 +17,8 @@ import java.util.*;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import com.github.philippheuer.credentialmanager.domain.OAuth2Credential;
 import com.github.twitch4j.TwitchClient;
@@ -30,7 +33,13 @@ import com.netflix.hystrix.exception.HystrixRuntimeException;
 import com.project610.async.CleanupQueue;
 import com.project610.async.SpeechQueue;
 import com.project610.structs.JList2;
+import com.project610.utils.Util;
 import net.miginfocom.swing.MigLayout;
+import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry;
+import org.apache.commons.compress.archivers.sevenz.SevenZFile;
+import org.apache.commons.compress.archivers.zip.ZipFile;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.sqlite.SQLiteDataSource;
 
@@ -214,6 +223,7 @@ public class Janna extends JPanel {
         parent.setJMenuBar(menuBar);
         menuBar.setLayout(new BoxLayout(menuBar, LINE_AXIS));
 
+        // FILE MENU
         JMenu fileMenu = new JMenu("File");
         menuBar.add(fileMenu);
 
@@ -229,10 +239,9 @@ public class Janna extends JPanel {
         });
         fileMenu.add(test);
 
+        // CHAT MENU
         JMenu chatMenu = new JMenu("Chat");
         menuBar.add(chatMenu);
-
-        menuBar.add(Box.createHorizontalGlue());
 
         JMenuItem silenceCurrentItem = new JMenuItem("Kill current message");
         silenceCurrentItem.addActionListener(e -> silenceCurrentVoices());
@@ -274,6 +283,80 @@ public class Janna extends JPanel {
             handleEmoteMenu.add(method);
         }
 
+        // CONFIG MENU
+        JMenu configMenu = new JMenu("Config");
+        menuBar.add(configMenu);
+
+        JMenu ffmpegItem = new JMenu("FFMPEG");
+        configMenu.add(ffmpegItem);
+
+        JMenuItem downloadFfmpegItem = new JMenuItem("Download FFMPEG");
+        ffmpegItem.add(downloadFfmpegItem);
+        downloadFfmpegItem.addActionListener(e -> {
+            try {
+                // Make ffmpeg dir if DNE
+                File dir = new File("ffmpeg");
+                if (!dir.exists()) {
+                    dir.mkdirs();
+                }
+
+                String zipPath = "temp/ffmpeg.zip";
+
+                switch (Util.getOS()) {
+                    case WINDOWS:
+                        String outPath = "ffmpeg/ffmpeg.exe";
+                        // TODO: Do this in separate thread so program doesn't hang
+                        if (!Files.exists(Paths.get(zipPath))) {
+                            FileUtils.copyURLToFile(
+                                    new URL("https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"),
+                                    new File(zipPath)
+                            );
+                        }
+                        if (extractFile(zipPath, "ffmpeg.exe", outPath)) {
+                            appConfig.put("ffmpegpath", outPath);
+                        }
+                        break;
+                    case LINUX:
+                        Desktop.getDesktop().browse(new URI("https://ffmpeg.org/download.html#build-linux"));
+                        return;
+                    case MAC:
+                        Desktop.getDesktop().browse(new URI("https://ffmpeg.org/download.html#build-mac"));
+                        return;
+                }
+            } catch (URISyntaxException ex) {
+                error("Error parsing URI for FFMPEG download", ex);
+            } catch (IOException ex) {
+                error("Error visiting URL to get FFMPEG", ex);
+            }
+        });
+
+
+        JMenuItem locateFfmpegItem = new JMenuItem("Locate FFMPEG Executable");
+        ffmpegItem.add(locateFfmpegItem);
+        locateFfmpegItem.addActionListener(e -> {
+            JDialog ffmpegDialog = new JDialog(parent,"Locate FFMPEG (The file, not directory)", true);
+            ffmpegDialog.setLocation(getPopupLocation());
+            ffmpegDialog.setSize(700, 400);
+            JFileChooser chooser = new JFileChooser(".");
+            ffmpegDialog.add(chooser);
+
+            String[] selected = {""}; // This seems silly, but eh
+            chooser.addActionListener(f -> {
+                if (f.getActionCommand().equals(JFileChooser.APPROVE_SELECTION)) {
+                    selected[0] = chooser.getSelectedFile().getAbsolutePath();
+                    ffmpegDialog.dispose();
+                } else if (f.getActionCommand().equals(JFileChooser.CANCEL_SELECTION)) {
+                    ffmpegDialog.dispose();
+                }
+            });
+            ffmpegDialog.setVisible(true);
+            if (!selected[0].isEmpty()) {
+                appConfig.put("ffmpegpath", selected[0]);
+            }
+        });
+
+        // MENUBAR DONE
+        menuBar.add(Box.createHorizontalGlue());
 
         // Mid pane to hold chat area, user list, input box, and send button (h-box)
         midPane = new JPanel(new MigLayout("fill"));
@@ -338,6 +421,25 @@ public class Janna extends JPanel {
         inputPane.add(sendButton, "east, w 50");
     }
 
+    private boolean extractFile(String zipPath, String file, String output) {
+        try (
+            FileSystem fileSystem = FileSystems.newFileSystem(Paths.get(zipPath), null);
+            FileInputStream fileIn = new FileInputStream(zipPath);
+            ZipInputStream zipIn = new ZipInputStream(fileIn)
+        ) {
+            ZipEntry entry;
+            while ((entry = zipIn.getNextEntry()) != null) {
+                if (!entry.isDirectory()
+                        && entry.getName().substring(entry.getName().lastIndexOf('/')+1).equalsIgnoreCase(file)) {
+                    Files.copy(fileSystem.getPath(entry.getName()), Paths.get(output), StandardCopyOption.REPLACE_EXISTING);
+                    return true;
+                }
+            }
+        } catch (Exception ex) {
+            error("Failed to unzip file: " + file, ex);
+        }
+        return false;
+    }
 
 
 //    private void setLogin(String username, String oauth) {
@@ -374,9 +476,13 @@ public class Janna extends JPanel {
 //        }
 //    }
 
+    public Point getPopupLocation() {
+        return new Point((int)parent.getLocation().getX()+80, (int)parent.getLocation().getY()+80);
+    }
+
     private void loginChannelPrompt() {
         JDialog channelDialog = new JDialog(parent, "Set Login/Channels", true);
-        channelDialog.setLocation((int)parent.getLocation().getX() + 80, (int)parent.getLocation().getY() + 80);
+        channelDialog.setLocation(getPopupLocation());
         channelDialog.setLayout(new MigLayout("fillx, w 600"));
 
         JPanel inputPanel = new JPanel(new MigLayout("fillx"));
@@ -1058,15 +1164,13 @@ public class Janna extends JPanel {
             }
         }
         else if (reward.equalsIgnoreCase("TTS: Set my voice accent")) {
-            redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel,false);
+            redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel);
         }
         // The way this is intended to work is: New people get 1 'free' accent change, subsequent changes are
         //  considerably more expensive, to keep people from confusing the streamer with constant significant changes
         else if (reward.equalsIgnoreCase("TTS: Set voice accent (Free)")) {
             if (currentUser.freeVoice > 0) {
-                // Don't redeem it, just require the 300 points to motivate follows
-                changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel,true);
-                redeemed = 0;
+                redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel);
             }
             else {
                 sendMessage(channel,"Scam detected. I'm keeping those channel points.  (@" + currentUser.name + ")");
@@ -1105,13 +1209,18 @@ public class Janna extends JPanel {
     }
 
     // Change accent - Could probably tie the speed/pitch into this later as well. TODO
-    public int changeUserVoice(User currentUser, String input, String channel, boolean freebie) {
+    public int changeUserVoice(User currentUser, String input, String channel) {
         if (voiceNames.contains(input)) {
             if (!currentUser.voiceName.equalsIgnoreCase(input)) {
+                boolean freebieUsed = false;
                 currentUser.voiceName = input;
-                if (freebie && currentUser.freeVoice > 0) currentUser.freeVoice--;
+                if (currentUser.freeVoice > 0) {
+                    currentUser.freeVoice--;
+                    freebieUsed = true;
+                }
                 currentUser.save();
-                return 1;
+                // Don't redeem it if a freebie was used, just require the 300 points to motivate follows
+                return (freebieUsed ? 0 : 1);
             } else {
                 sendMessage(channel,"You're already using that voice (@" + currentUser.name + ")");
             }
@@ -1167,12 +1276,14 @@ public class Janna extends JPanel {
             s = s.replaceAll("(?i)"+find, replace);
         }
 
+        // Sanitize for the API's sake
+        s = s.replace("&", "and");
+        s = s.replace("%", "percent");
+        s = s.replace("#", "");
+
         int tempWordCount = 0;
         String tempWord = "";
         String[] words = s.split(" ");
-
-        // Sanitize for the API's sake
-        s = s.replace("&", "and");
 
         // Anti-spam and anti-annoyance measures
         for (String word : words) {

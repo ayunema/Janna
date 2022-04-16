@@ -1,6 +1,7 @@
 package com.project610;
 
 import com.github.twitch4j.helix.domain.User;
+import com.project610.libs.WebBrowser;
 
 import java.sql.ResultSet;
 import java.util.Arrays;
