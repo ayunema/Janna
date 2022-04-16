@@ -322,6 +322,8 @@ public class Janna extends JPanel {
                     case MAC:
                         Desktop.getDesktop().browse(new URI("https://ffmpeg.org/download.html#build-mac"));
                         return;
+                    default:
+                        warn("Unrecognized OS: " + System.getProperty("os.name").toLowerCase());
                 }
             } catch (URISyntaxException ex) {
                 error("Error parsing URI for FFMPEG download", ex);
