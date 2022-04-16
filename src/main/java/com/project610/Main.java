@@ -8,9 +8,10 @@ public class Main {
     public static void main(String[] args) {
 
         try {
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
             // Dunno if the stuff below does anything, just trying to fix Manjaro text size issues
             JFrame.setDefaultLookAndFeelDecorated(true);
+            JDialog.setDefaultLookAndFeelDecorated(true);
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
             System.setProperty("awt.useSystemAAFontSettings", "on");
             System.setProperty("swing.aatext", "true");
         } catch (Exception ex) {
