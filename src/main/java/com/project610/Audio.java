@@ -4,6 +4,7 @@ import com.project610.async.AudioConcat;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -93,8 +94,14 @@ public class Audio {
 //            while ((line = br.readLine()) != null) {
 //                System.out.println(line);
 //            }
-        } catch (Exception ex) {
+        } catch (IOException ex) {
+            if (ex.toString().contains("cannot find the file specified")) {
+                warn("Bad FFMPEG path: " + appConfig.get("ffmpegpath"));
+                return;
+            }
             error("Error running process: " + cmd, ex);
+        } catch (InterruptedException ex) {
+            //
         }
     }
 
