@@ -659,7 +659,13 @@ public class Janna extends JPanel {
 
 
         // Get credentials for logging into chat
-        credential = new OAuth2Credential("twitch", Creds._password);
+        try {
+            credential = new OAuth2Credential("twitch", Creds._password);
+        } catch (Exception ex) {
+            warn("Failed to log into chat. Enter username/oauth for chat, and specify a main channel");
+            loginChannelPrompt();
+            return;
+        }
 
         twitch = TwitchClientBuilder.builder()
                 .withClientId(Creds._clientid)
@@ -883,64 +889,6 @@ public class Janna extends JPanel {
         } catch (NumberFormatException ex) {
             // Shouldn't be possible, user input not involved
             error("Error setting window position", ex);
-        }
-    }
-
-    private void readAppConfig() throws Exception {
-        try {
-            List<String> config = Files.readAllLines(configPath);
-            for (String s : config) {
-                s = s.trim();
-                if (s.isEmpty() || s.charAt(0) == '#') continue;
-
-                String key = s.split("=", 2)[0];
-                String value = s.split("=", 2)[1];
-
-                appConfig.put(key, value);
-            }
-
-            Creds._username = appConfig.get("username");
-            Creds._password = appConfig.get("oauth");
-
-        } catch (Exception ex) {
-            warn("Failed to load username or oauth token, please update `config.ini` with your chat credentials");
-            if (!Files.exists(configPath)) {
-                Files.write(configPath, (
-                        "# Login credentials go here. You must not use your password, but an OAUTH token,\n" +
-                                "# which you can get from here: https://twitchapps.com/tmi/\n" +
-                                "username=\n" +
-                                "oauth=\n" +
-                                "\n" +
-                                "# Primary channel to listen for chat (And handle channel point redemptions)\n" +
-                                "mainchannel=\n" +
-                                "\n" +
-                                "# This is kinda wonky right now. It'll read out stuff from other channels, and any messages sent by the bot will be sent to these channels as well\n" +
-                                "# (Comma separated list, eg: channel6,channel1,channel0)\n" +
-                                "extrachannels=\n").getBytes());
-            }
-        }
-
-
-        try {
-            InputStream is = getClass().getClassLoader().getResourceAsStream(".properties");
-
-            //properties = Files.readAllLines(Paths.get(getClass().getClassLoader().getResource(".properties").toURI()));
-            BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
-            String line;
-            while ((line = br.readLine()) != null) {
-                if (line.startsWith("version=")) {
-                    appVersion = line.substring(line.indexOf("=") + 1);
-                    if (null == appConfig.get("version") || !appConfig.get("version").equalsIgnoreCase(appVersion)) {
-                        appConfig.put("version", appVersion);
-                        // TODO: Deal with new app versions somehow
-//                        writeSettings();
-//                        newVersion = true;
-                    }
-                    parent.setTitle(parent.getTitle().replace("%VERSION%",  "v" + appVersion));
-                }
-            }
-        } catch (Exception ex) {
-            // If we can't read from resources, we got problems
         }
     }
 

@@ -18,7 +18,7 @@ public class Main {
             System.err.println("Look and feel broke, probably falling back on the garbo L&F");
             ex.printStackTrace();
         }
-        JFrame jf = new JFrame("Janna %VERSION% (Open source edition)");
+        JFrame jf = new JFrame("Janna %VERSION%");
         jf.setMinimumSize(new Dimension(300, 300));
         jf.setSize(500,400);
 
