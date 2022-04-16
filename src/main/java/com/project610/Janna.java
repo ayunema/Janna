@@ -1134,6 +1134,7 @@ public class Janna extends JPanel {
                 sendMessage(channel, "@"+username+", your voice speed/pitch have been reset!");
                 currentUser.voicePitch = 0;
                 currentUser.voiceSpeed = 1;
+                currentUser.save();
                 redeemed = 1;
             }
         }

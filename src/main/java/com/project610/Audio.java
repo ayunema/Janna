@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
@@ -21,7 +22,7 @@ public class Audio {
     private static Runtime runtime = Runtime.getRuntime();
     public static String desiredExt = ".wav";
 
-    public static String concat(String username, TreeMap<String, String> filenames) {
+    public static String concat(String username, LinkedHashMap<String, String> filenames) {
         int rand = (int)(Math.random()*100000);
         String out = "temp/se_concat-"+rand+desiredExt;
 

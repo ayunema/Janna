@@ -20,6 +20,7 @@ import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.TreeMap;
 
 import static com.project610.Janna.*;
@@ -54,7 +55,7 @@ public class SeVoice {
         }
         String baseUrl = "https://api.streamelements.com/kappa/v2/speech?voice="
                 + voiceName + "&text=";
-        TreeMap<String, String> outFiles = new TreeMap<>();
+        LinkedHashMap<String, String> outFiles = new LinkedHashMap<>();
         for (TTSMessage message : messages) {
             if ("sfx".equalsIgnoreCase(message.type) && !message.text.isEmpty()) {
                 String expectedName = "sfx/" + message.text.substring(message.text.lastIndexOf("/") + 1);
