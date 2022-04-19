@@ -47,6 +47,7 @@ public class Audio {
                 fileListData += "file '../"+newName+"'\n";
             }
             Files.write(fileList, fileListData.getBytes(StandardCharsets.UTF_8));
+
             // Make sure the files are all written
             for (int i = 0; i < converted.size(); i++) {
                 Path path = Paths.get(converted.get(i));
@@ -89,11 +90,6 @@ public class Audio {
         try {
             Process p = runtime.exec(cmd);
             p.waitFor(1, TimeUnit.SECONDS);
-//            BufferedReader br = new BufferedReader(new InputStreamReader(p.getErrorStream()));
-//            String line = "";
-//            while ((line = br.readLine()) != null) {
-//                System.out.println(line);
-//            }
         } catch (IOException ex) {
             if (ex.toString().contains("cannot find the file specified")) {
                 warn("Bad FFMPEG path: " + appConfig.get("ffmpegpath"));

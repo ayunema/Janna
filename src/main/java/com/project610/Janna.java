@@ -1763,73 +1763,122 @@ public class Janna extends JPanel {
         String[] split = message.split(" ");
         String cmd = split[0];
 
-
-        if (cmd.equalsIgnoreCase("no")) {
-            if (!isMod(user.name)) return;
-            silenceCurrentVoices();
-        } else if (cmd.equalsIgnoreCase("stfu")) {
-            if (!isMod(user.name)) return;
-            silenceAllVoices();
-        } else if (cmd.equalsIgnoreCase("mute")) {
-            if (!isMod(user.name)) return;
-            String result = "";
-            if (split.length == 1) {
-                sendMessage(channel, "Malformed command; Usage: !mute <username>"/* [duration]"*/);
-                return;
-            } else if (split.length == 2) {
-                result = muteUser(split[1], "-1");
-            } else {
-                result = muteUser(split[1], split[2]);
+        switch (cmd.toLowerCase()) {
+            case "no": {
+                if (!isMod(user.name)) return;
+                silenceCurrentVoices();
             }
-            sendMessage(channel, result);
-        } else if (cmd.equalsIgnoreCase("unmute")) {
-            if (!isMod(user.name)) return;
-            String result = "";
-            if (split.length == 1) {
-                sendMessage(channel, "Malformed command; Usage: !unmute <username>");
-                return;
-            } else {
-                result = unmuteUser(split[1]);
+            break;
+            case "stfu": {
+                if (!isMod(user.name)) return;
+                silenceAllVoices();
             }
-            if (!result.isEmpty()) {
+            break;
+            case "mute": {
+                if (!isMod(user.name)) return;
+                String result = "";
+                if (split.length == 1) {
+                    sendMessage(channel, "Malformed command; Usage: !mute <username>"/* [duration]"*/);
+                    return;
+                } else if (split.length == 2) {
+                    result = muteUser(split[1], "-1");
+                } else {
+                    result = muteUser(split[1], split[2]);
+                }
                 sendMessage(channel, result);
             }
-        } else if (cmd.equalsIgnoreCase("janna.addsfx")) {
-            if (!isMod(user.name)) return;
-            addReaction("sfx", message, channel);
-        } else if (cmd.equalsIgnoreCase("janna.addfilter")) {
-            if (!isMod(user.name)) return;
-            addReaction("filter", message, channel);
-        } else if (cmd.equalsIgnoreCase("janna.addresponse")) {
-            if (!isMod(user.name)) return;
-            addReaction("response", message, channel);
-        } else if (cmd.equalsIgnoreCase("janna.removesfx")) {
-            if (!isMod(user.name)) return;
-            removeReaction("sfx", message, channel);
-        } else if (cmd.equalsIgnoreCase("janna.removefilter")) {
-            if (!isMod(user.name)) return;
-            removeReaction("filter", message, channel);
-        } else if (cmd.equalsIgnoreCase("janna.removeresponse")) {
-            if (!isMod(user.name)) return;
-            removeReaction("response", message, channel);
-        } else if (cmd.equalsIgnoreCase("janna.modsfx")) {
-            if (!isMod(user.name)) return;
-            modReaction("sfx", message, channel);
-        } else if (cmd.equalsIgnoreCase("janna.getsfx")) {
-            if (!isMod(user.name)) return;
-            getReaction("sfx", message, channel);
-        }
-        else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
-            if (setUserPref(user, "butt_stuff", "0")) {
-                twitch.getChat().sendMessage(channel, "Okay, I won't butt you, bro.");
+            break;
+            case "unmute": {
+                if (!isMod(user.name)) return;
+                String result = "";
+                if (split.length == 1) {
+                    sendMessage(channel, "Malformed command; Usage: !unmute <username>");
+                    return;
+                } else {
+                    result = unmuteUser(split[1]);
+                }
+                if (!result.isEmpty()) {
+                    sendMessage(channel, result);
+                }
             }
-        } else if (cmd.equalsIgnoreCase("dobuttmebro")) {
-            if (setUserPref(user, "butt_stuff", "1")) {
-                twitch.getChat().sendMessage(channel, "Can't get enough of that butt.");
+            break;
+            case "janna.addsfx": {
+                if (!isMod(user.name)) return;
+                addReaction("sfx", message, channel);
             }
-        } else if (cmd.equalsIgnoreCase("voice")) {
-            sendMessage(channel, "@"+user.name + ", Your current voice is: " + user.voiceName +
-                    " (Speed: " + user.voiceSpeed + " (0.75 ~ 4.0), Pitch: " + user.voicePitch + " (-20 ~ 20), Freebies: " + user.freeVoice);
+            break;
+            case "janna.addfilter": {
+                if (!isMod(user.name)) return;
+                addReaction("filter", message, channel);
+            }
+            break;
+            case "janna.addresponse": {
+                if (!isMod(user.name)) return;
+                addReaction("response", message, channel);
+            }
+            break;
+            case "janna.removesfx": {
+                if (!isMod(user.name)) return;
+                removeReaction("sfx", message, channel);
+            }
+            break;
+            case "janna.removefilter": {
+                if (!isMod(user.name)) return;
+                removeReaction("filter", message, channel);
+            }
+            break;
+            case "janna.removeresponse": {
+                if (!isMod(user.name)) return;
+                removeReaction("response", message, channel);
+            }
+            break;
+            case "janna.modsfx": {
+                if (!isMod(user.name)) return;
+                modReaction("sfx", message, channel);
+            }
+            break;
+            case "janna.getsfx": {
+                if (!isMod(user.name)) return;
+                getReaction("sfx", message, channel);
+            }
+            break;
+            case "janna.getfilter": {
+                if (!isMod(user.name)) return;
+                getReaction("filter", message, channel);
+            }
+            break;
+            case "janna.getresponse": {
+                if (!isMod(user.name)) return;
+                getReaction("response", message, channel);
+            }
+            break;
+            case "dontbuttmebro": {
+                if (setUserPref(user, "butt_stuff", "0")) {
+                    twitch.getChat().sendMessage(channel, "Okay, I won't butt you, bro.");
+                }
+            }
+            break;
+            case "dobuttmebro": {
+                if (setUserPref(user, "butt_stuff", "1")) {
+                    twitch.getChat().sendMessage(channel, "Can't get enough of that butt.");
+                }
+            }
+            break;
+            case "voice": {
+                sendMessage(channel, "@" + user.name + ", Your current voice is: " + user.voiceName +
+                        " (Speed: " + user.voiceSpeed + " (0.75 ~ 4.0), Pitch: " + user.voicePitch + " (-20 ~ 20), Freebies: " + user.freeVoice);
+            }
+            break;
+            case "sfxlist": {
+                String sfxString = "";
+                for (String sfx : sfxList.keySet()) {
+                    sfxString += (sfxString.isEmpty() ? "" : ", ") + sfx;
+                }
+                sendMessage(channel, "All SFX: " + sfxString);
+            }
+            break;
+
+            default: {}
         }
     }
 
@@ -1845,10 +1894,20 @@ public class Janna extends JPanel {
             switch (type) {
                 case "sfx":
                     sendMessage(channel, "["+phrase+"] url="+result.getString("result") + ", extra="+result.getString("extra"));
-                // etc
+                    break;
+                case "filter":
+                    sendMessage(channel, "["+phrase+"] replacement="+result.getString("result") + ", extra="+result.getString("extra"));
+                    break;
+                case "response":
+                    sendMessage(channel, "["+phrase+"] response="+result.getString("result") + ", extra="+result.getString("extra"));
+                    break;
+                default:
             }
         } catch (SQLException ex) {
             // Meh for now
+        } catch (IndexOutOfBoundsException ex) {
+            String usage = "!janna.get"+type + " <phrase>";
+            sendMessage(channel, "Malformed command; Usage: " + usage);
         }
     }
 
