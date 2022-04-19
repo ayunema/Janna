@@ -26,7 +26,7 @@ public class Sfx {
                 key = "soundLevel";
             }
             else if (Janna.ttsMode.equalsIgnoreCase("se")) {
-                key = "-filter:a \"volume=";
+                key = ",volume=";
             }
             try {
                 if (key.equalsIgnoreCase("soundLevel")) {
@@ -40,7 +40,7 @@ public class Sfx {
                         value = "";
                     }
                     value = "=\"" + value + "dB\"";
-                } else if (key.equalsIgnoreCase("-filter:a \"volume=")) {
+                } else if (key.equalsIgnoreCase(",volume=")) {
                     try {
                         double db = Double.parseDouble(value);
                         if (db > 20) {
@@ -49,7 +49,7 @@ public class Sfx {
                     } catch (NumberFormatException ex) {
                         value = "";
                     }
-                    value = value + "dB\"";
+                    value = value + "dB";
                 }
             } catch (Exception ex) { }
         }

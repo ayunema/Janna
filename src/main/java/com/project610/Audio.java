@@ -110,8 +110,8 @@ public class Audio {
             String newName = dst.substring(0, dst.lastIndexOf('.')) + desiredExt;
             String cmd =
                     appConfig.get("ffmpegpath") +
-                            " -i " + src + " -af \"aformat=sample_fmts=s16:sample_rates=24000\" -ac 1 " +
-                            extra + " " + newName;
+                            " -i " + src + " -af \"aformat=sample_fmts=s16:sample_rates=24000"+extra+"\" -ac 1 " +
+                            " " + newName;
             runCmd(cmd);
             cleanupQueue.queue.add(src);
             return newName;

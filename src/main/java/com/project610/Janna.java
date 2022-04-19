@@ -1815,6 +1815,9 @@ public class Janna extends JPanel {
         } else if (cmd.equalsIgnoreCase("janna.modsfx")) {
             if (!isMod(user.name)) return;
             modReaction("sfx", message, channel);
+        } else if (cmd.equalsIgnoreCase("janna.getsfx")) {
+            if (!isMod(user.name)) return;
+            getReaction("sfx", message, channel);
         }
         else if (cmd.equalsIgnoreCase("dontbuttmebro")) {
             if (setUserPref(user, "butt_stuff", "0")) {
@@ -1826,7 +1829,26 @@ public class Janna extends JPanel {
             }
         } else if (cmd.equalsIgnoreCase("voice")) {
             sendMessage(channel, "@"+user.name + ", Your current voice is: " + user.voiceName +
-                    " (Speed: " + user.voiceSpeed + " (0.75 ~ 4.0), Pitch: " + user.voicePitch + " (-20 ~ 20)");
+                    " (Speed: " + user.voiceSpeed + " (0.75 ~ 4.0), Pitch: " + user.voicePitch + " (-20 ~ 20), Freebies: " + user.freeVoice);
+        }
+    }
+
+    private void getReaction(String type, String message, String channel) {
+        try {
+            String[] split = message.split(" ");
+            String phrase = split[1].toLowerCase();
+            PreparedStatement prep = sqlCon.prepareStatement("SELECT * FROM reaction WHERE type=? AND phrase=?;");
+            prep.setString(1, type);
+            prep.setString(2, phrase);
+            ResultSet result = prep.executeQuery();
+
+            switch (type) {
+                case "sfx":
+                    sendMessage(channel, "["+phrase+"] url="+result.getString("result") + ", extra="+result.getString("extra"));
+                // etc
+            }
+        } catch (SQLException ex) {
+            // Meh for now
         }
     }
 
