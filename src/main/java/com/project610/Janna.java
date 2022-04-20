@@ -86,11 +86,11 @@ public class Janna extends JPanel {
     public static HashMap<String, String> appConfig = new HashMap<>();
     String appVersion = "";
 
-    public static HashMap<String,String> filterList = new HashMap<>();
+    public static HashMap<String, String> filterList = new HashMap<>();
     public static HashMap<String, Sfx> sfxList = new HashMap<>();
     public static HashMap<String, String> responseList = new HashMap<>();
 
-//    static String ttsMode = "google"; // Pitch applies during synthesis, sounds better
+    //    static String ttsMode = "google"; // Pitch applies during synthesis, sounds better
     static String ttsMode = "se"; // Way more voices, speed/pitch modify SFX, but *may suddenly crash and burn*
 
     public Janna(String[] args, JFrame parent) {
@@ -115,7 +115,7 @@ public class Janna extends JPanel {
 //                        writeSettings();
 //                        newVersion = true;
                     }
-                    parent.setTitle(parent.getTitle().replace("%VERSION%",  "v" + appVersion));
+                    parent.setTitle(parent.getTitle().replace("%VERSION%", "v" + appVersion));
                 }
             }
         } catch (Exception ex) {
@@ -134,8 +134,7 @@ public class Janna extends JPanel {
             PreparedStatement ps = Janna.instance.sqlCon.prepareStatement("INSERT INTO auth (token) VALUES (?);");
             ps.setString(1, token);
             ps.execute();
-        }
-        catch (Exception ex) {
+        } catch (Exception ex) {
             error("Failed to save auth token, that's gon' cause problems", ex);
         }
 
@@ -336,7 +335,7 @@ public class Janna extends JPanel {
         JMenuItem locateFfmpegItem = new JMenuItem("Locate FFMPEG Executable");
         ffmpegItem.add(locateFfmpegItem);
         locateFfmpegItem.addActionListener(e -> {
-            JDialog ffmpegDialog = new JDialog(parent,"Locate FFMPEG (The file, not directory)", true);
+            JDialog ffmpegDialog = new JDialog(parent, "Locate FFMPEG (The file, not directory)", true);
             ffmpegDialog.setLocation(getPopupLocation());
             ffmpegDialog.setSize(700, 400);
             JFileChooser chooser = new JFileChooser(".");
@@ -390,7 +389,7 @@ public class Janna extends JPanel {
         userList = new JList2<String>();
         userList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         userList.setPrototypeCellValue("___________________");
-        userListPane.add (new JScrollPane(userList, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS), "growy");
+        userListPane.add(new JScrollPane(userList, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS), "growy");
 
         inputPane = new JPanel(new MigLayout("fillx"));
         inputPane.setBackground(new Color(50, 50, 100));
@@ -425,14 +424,14 @@ public class Janna extends JPanel {
 
     private boolean extractFile(String zipPath, String file, String output) {
         try (
-            FileSystem fileSystem = FileSystems.newFileSystem(Paths.get(zipPath), null);
-            FileInputStream fileIn = new FileInputStream(zipPath);
-            ZipInputStream zipIn = new ZipInputStream(fileIn)
+                FileSystem fileSystem = FileSystems.newFileSystem(Paths.get(zipPath), null);
+                FileInputStream fileIn = new FileInputStream(zipPath);
+                ZipInputStream zipIn = new ZipInputStream(fileIn)
         ) {
             ZipEntry entry;
             while ((entry = zipIn.getNextEntry()) != null) {
                 if (!entry.isDirectory()
-                        && entry.getName().substring(entry.getName().lastIndexOf('/')+1).equalsIgnoreCase(file)) {
+                        && entry.getName().substring(entry.getName().lastIndexOf('/') + 1).equalsIgnoreCase(file)) {
                     Files.copy(fileSystem.getPath(entry.getName()), Paths.get(output), StandardCopyOption.REPLACE_EXISTING);
                     return true;
                 }
@@ -479,7 +478,7 @@ public class Janna extends JPanel {
 //    }
 
     public Point getPopupLocation() {
-        return new Point((int)parent.getLocation().getX()+80, (int)parent.getLocation().getY()+80);
+        return new Point((int) parent.getLocation().getX() + 80, (int) parent.getLocation().getY() + 80);
     }
 
     private void loginChannelPrompt() {
@@ -511,7 +510,10 @@ public class Janna extends JPanel {
         JPanel buttonPanel = new JPanel(new MigLayout());
         channelDialog.add(buttonPanel, "south");
         JButton okButton = new JButton("OK");
-        okButton.addActionListener(e -> { channelDialog.dispose(); setLoginAndChannels(usernameField.getText(), oauthField.getPassword(), mainField.getText(), extraField.getText()); });
+        okButton.addActionListener(e -> {
+            channelDialog.dispose();
+            setLoginAndChannels(usernameField.getText(), oauthField.getPassword(), mainField.getText(), extraField.getText());
+        });
         buttonPanel.add(okButton);
         JButton cancelButton = new JButton("Cancel");
         cancelButton.addActionListener(e -> channelDialog.dispose());
@@ -834,7 +836,7 @@ public class Janna extends JPanel {
                 } else if (type.equalsIgnoreCase("sfx")) {
                     sfxList.put(key, new Sfx(value, (null == extra ? "" : extra)));
                 } else if (type.equalsIgnoreCase("response")) {
-                    responseList.put(key,value);
+                    responseList.put(key, value);
                 }
             } while (result.next());
         } catch (Exception ex) {
@@ -910,8 +912,7 @@ public class Janna extends JPanel {
             twitch.getEventManager().onEvent(RewardRedeemedEvent.class, this::rewardRedeemed);
 
             setupCustomRewards();
-        }
-        catch (Exception ex) {
+        } catch (Exception ex) {
             error("Error doing postAuth stuff", ex);
         }
     }
@@ -997,7 +998,7 @@ public class Janna extends JPanel {
 
     // Generate a TTS-specific reward. If no modification is desired (eg: From the generateSimplifiedCustomReward root)
     //  then set uploadImmediately=true to just fire and forget
-    private CustomReward generateTTSReward (String title, String prompt, int cost, String backgroundColor, boolean inputRequired, boolean uploadImmediately) {
+    private CustomReward generateTTSReward(String title, String prompt, int cost, String backgroundColor, boolean inputRequired, boolean uploadImmediately) {
         CustomReward reward = generateSimplifiedCustomReward()
                 .title(title)
                 .prompt(prompt)
@@ -1046,7 +1047,7 @@ public class Janna extends JPanel {
             String cmd = split[0].substring(1).trim();
 
             if (cmd.equalsIgnoreCase("j") || cmd.equalsIgnoreCase("join")) {
-                String channel = split[1].replace("#","");
+                String channel = split[1].replace("#", "");
                 twitch.getChat().joinChannel(channel);
             }
 
@@ -1074,46 +1075,39 @@ public class Janna extends JPanel {
                 System.out.println("New current voice: " + rand + " -> " + defaultVoice);
                 redeemed = 1;
             }
-        }
-        else if (reward.equalsIgnoreCase("TTS: Lower my voice pitch")) {
+        } else if (reward.equalsIgnoreCase("TTS: Lower my voice pitch")) {
             if (currentUser.voicePitch > -20) {
                 currentUser.voicePitch -= 1;
                 currentUser.save();
                 redeemed = 1;
             } else {
-                sendMessage(channel,username + ": Your voice is as low as it gets! (@" + username + ")");
+                sendMessage(channel, username + ": Your voice is as low as it gets! (@" + username + ")");
             }
-        }
-        else if (reward.equalsIgnoreCase("TTS: Raise my voice pitch")) {
-            if ( currentUser.voicePitch < 20) {
+        } else if (reward.equalsIgnoreCase("TTS: Raise my voice pitch")) {
+            if (currentUser.voicePitch < 20) {
                 currentUser.voicePitch += 1;
                 currentUser.save();
                 redeemed = 1;
+            } else {
+                sendMessage(channel, username + ": I can't raise your voice any higher than this (@" + username + ")");
             }
-            else {
-                sendMessage(channel,username + ": I can't raise your voice any higher than this (@" + username + ")");
-            }
-        }
-        else if (reward.equalsIgnoreCase("TTS: Slow down my voice")) {
+        } else if (reward.equalsIgnoreCase("TTS: Slow down my voice")) {
             if (currentUser.voiceSpeed > 0.75) {
                 currentUser.voiceSpeed -= 0.25;
                 currentUser.save();
                 redeemed = 1;
             } else {
-                sendMessage(channel,"Your voice is already minimum speed (@" + username + "");
+                sendMessage(channel, "Your voice is already minimum speed (@" + username + "");
             }
-        }
-        else if (reward.equalsIgnoreCase("TTS: Speed up my voice")) {
-            if ( currentUser.voiceSpeed < 4.0) {
+        } else if (reward.equalsIgnoreCase("TTS: Speed up my voice")) {
+            if (currentUser.voiceSpeed < 4.0) {
                 currentUser.voiceSpeed += 0.25;
                 currentUser.save();
                 redeemed = 1;
+            } else {
+                sendMessage(channel, "Your voice is already max speed (@" + username + "");
             }
-            else {
-                sendMessage(channel,"Your voice is already max speed (@" + username + "");
-            }
-        }
-        else if (reward.equalsIgnoreCase("TTS: Set my voice accent")) {
+        } else if (reward.equalsIgnoreCase("TTS: Set my voice accent")) {
             redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel);
         }
         // The way this is intended to work is: New people get 1 'free' accent change, subsequent changes are
@@ -1121,17 +1115,16 @@ public class Janna extends JPanel {
         else if (reward.equalsIgnoreCase("TTS: Set voice accent (Free)")) {
             if (currentUser.freeVoice > 0) {
                 redeemed = changeUserVoice(currentUser, event.getRedemption().getUserInput().trim(), channel);
-            }
-            else {
-                sendMessage(channel,"Scam detected. I'm keeping those channel points.  (@" + currentUser.name + ")");
+            } else {
+                sendMessage(channel, "Scam detected. I'm keeping those channel points.  (@" + currentUser.name + ")");
                 redeemed = 1;
             }
         } else if (reward.equalsIgnoreCase("TTS: Reset my voice (Speed/Pitch)")) {
             if (currentUser.voicePitch == 0 && currentUser.voiceSpeed == 1) {
-                sendMessage(channel, "@"+username+", your voice is already at default speed/pitch");
+                sendMessage(channel, "@" + username + ", your voice is already at default speed/pitch");
                 redeemed = 0;
             } else {
-                sendMessage(channel, "@"+username+", your voice speed/pitch have been reset!");
+                sendMessage(channel, "@" + username + ", your voice speed/pitch have been reset!");
                 currentUser.voicePitch = 0;
                 currentUser.voiceSpeed = 1;
                 currentUser.save();
@@ -1173,10 +1166,10 @@ public class Janna extends JPanel {
                 // Don't redeem it if a freebie was used, just require the 300 points to motivate follows
                 return (freebieUsed ? 0 : 1);
             } else {
-                sendMessage(channel,"You're already using that voice (@" + currentUser.name + ")");
+                sendMessage(channel, "You're already using that voice (@" + currentUser.name + ")");
             }
         } else {
-            sendMessage(channel,"That voice isn't supported (@" + currentUser.name + ")");
+            sendMessage(channel, "That voice isn't supported (@" + currentUser.name + ")");
         }
         return 0;
     }
@@ -1195,9 +1188,9 @@ public class Janna extends JPanel {
             update.setString(1, user.voiceName);
             update.setDouble(2, user.voiceSpeed);
             update.setDouble(3, user.voicePitch);
-            update.setDouble(4,user.voiceVolume);
-            update.setDouble(5,user.freeVoice);
-            update.setInt(6,user.id);
+            update.setDouble(4, user.voiceVolume);
+            update.setDouble(5, user.freeVoice);
+            update.setInt(6, user.id);
             update.executeUpdate();
         } catch (Exception ex) {
             error("Failed to save user: " + user.name, ex);
@@ -1224,7 +1217,7 @@ public class Janna extends JPanel {
 
         for (String find : filterList.keySet()) {
             String replace = filterList.get(find);
-            s = s.replaceAll("(?i)"+find, replace);
+            s = s.replaceAll("(?i)" + find, replace);
         }
 
         // Sanitize for the API's sake
@@ -1255,20 +1248,17 @@ public class Janna extends JPanel {
                     char tempChar = ' ';
                     int tempCharCount = 0;
                     for (int i = 0; i < sb.length(); i++) {
-                        if (Character.toLowerCase(tempChar) == Character.toLowerCase(sb.charAt(i)))
-                        {
+                        if (Character.toLowerCase(tempChar) == Character.toLowerCase(sb.charAt(i))) {
                             tempCharCount++;
-                            if (tempCharCount > 2)
-                            {
+                            if (tempCharCount > 2) {
                                 sb.deleteCharAt(i);
                                 i--;
                             }
-                        }
-                        else {
+                        } else {
                             tempChar = sb.charAt(i);
                             tempCharCount = 0;
                         }
-                        word=sb.toString();
+                        word = sb.toString();
                     }
                 }
             } catch (IndexOutOfBoundsException ex) {
@@ -1375,9 +1365,9 @@ public class Janna extends JPanel {
     public HashMap<String, String> getUserPrefs(User user) {
         try {
             HashMap<String, String> prefs = new HashMap<>();
-            PreparedStatement userPrefsQuery = sqlCon.prepareStatement("SELECT * FROM user_pref up JOIN pref p ON p.id = up.pref_id WHERE up.user_id = " + user.id +";");
+            PreparedStatement userPrefsQuery = sqlCon.prepareStatement("SELECT * FROM user_pref up JOIN pref p ON p.id = up.pref_id WHERE up.user_id = " + user.id + ";");
             ResultSet result = userPrefsQuery.executeQuery();
-            System.out.println("User prefs for "+user.name+":");
+            System.out.println("User prefs for " + user.name + ":");
             while (result.next()) {
                 System.out.println(result.getString("name") + "=" + result.getString("data"));
                 prefs.put(result.getString("name"), result.getString("data"));
@@ -1395,8 +1385,8 @@ public class Janna extends JPanel {
                 System.out.println("Pref already set: " + user.name + "." + name + "=" + data);
                 return false;
             } else if (null != user.prefs.get(name)) {
-                PreparedStatement query = sqlCon.prepareStatement("UPDATE user_pref SET data='"+data+"' "
-                        + " WHERE user_id="+user.id+" AND pref_id = (SELECT id FROM pref WHERE name='" + name + "'"
+                PreparedStatement query = sqlCon.prepareStatement("UPDATE user_pref SET data='" + data + "' "
+                        + " WHERE user_id=" + user.id + " AND pref_id = (SELECT id FROM pref WHERE name='" + name + "'"
                         + ");");
                 query.execute();
             } else {
@@ -1410,7 +1400,7 @@ public class Janna extends JPanel {
             user.prefs.put(name, data);
 
         } catch (Exception ex) {
-            error("Error setting user pref `"+name+"="+data+"` for `"+user.name+"`", ex);
+            error("Error setting user pref `" + name + "=" + data + "` for `" + user.name + "`", ex);
             return false;
         }
         return true;
@@ -1439,19 +1429,19 @@ public class Janna extends JPanel {
         }
     }
 
-    public static void debug (String s) {
+    public static void debug(String s) {
         console("[DEBUG] " + s, 7);
     }
 
-    public static void info (String s) {
+    public static void info(String s) {
         console("[INFO]  " + s, 6);
     }
 
-    public static void chat (String s) {
+    public static void chat(String s) {
         console("" + s, 5);
     }
 
-    public static void warn (String s) {
+    public static void warn(String s) {
         console("[WARN]  " + s, 4);
     }
 
@@ -1507,8 +1497,7 @@ public class Janna extends JPanel {
         if (whitelistOnly) {
             if (false/*isOp*/) {
 
-            }
-            else if (!whitelist.contains(user.name.toLowerCase())) {
+            } else if (!whitelist.contains(user.name.toLowerCase())) {
                 return;
             }
         }
@@ -1596,8 +1585,6 @@ public class Janna extends JPanel {
         }
 
 
-
-
         // Handle sfx - Only play the first to avoid unholy noise spam
         int soundPos = message.length(), cursor = 0;
         String find = "";
@@ -1608,12 +1595,12 @@ public class Janna extends JPanel {
             boolean matches = message.toLowerCase().contains(key.toLowerCase());
             int index = message.toLowerCase().indexOf(key.toLowerCase());
             if (matches && index < soundPos) {
-                String subMessage = message.substring(0,Math.min(message.length(), soundPos)).toLowerCase();
+                String subMessage = message.substring(0, Math.min(message.length(), soundPos)).toLowerCase();
                 for (String word : subMessage.split(" ")) {
                     // Only match full words
                     if (word.equalsIgnoreCase(key)) {
                         soundPos = cursor + subMessage.substring(cursor).indexOf(key);
-                        find=key;
+                        find = key;
                         replace = "";
                         break;
                     } else {
@@ -1624,14 +1611,12 @@ public class Janna extends JPanel {
         }
 
         String half1 = message.substring(0, soundPos).trim(),
-                half2 = message.substring(soundPos).replaceFirst("(?i)"+find, replace).trim();
+                half2 = message.substring(soundPos).replaceFirst("(?i)" + find, replace).trim();
         if (!half1.isEmpty()) messages.add(new TTSMessage("message", half1));
         if (!find.isEmpty()) {
             messages.add(new TTSMessage("sfx", sfxList.get(find), find));
         }
         if (!half2.isEmpty()) messages.add(new TTSMessage("message", half2));
-
-
 
 
         return messages.toArray(new TTSMessage[0]);
@@ -1707,13 +1692,13 @@ public class Janna extends JPanel {
             boolean matches = message.toLowerCase().contains(key.toLowerCase());
             int index = message.toLowerCase().indexOf(key.toLowerCase());
             if (matches && index < soundPos) {
-                String subMessage = message.substring(0,Math.min(message.length(), soundPos)).toLowerCase();
+                String subMessage = message.substring(0, Math.min(message.length(), soundPos)).toLowerCase();
                 for (String word : subMessage.split(" ")) {
                     // Only match full words
                     if (word.equalsIgnoreCase(key)) {
                         soundPos = cursor + subMessage.substring(cursor).indexOf(key);
-                        find=key;
-                        replace = "<audio src=\""+sfxList.get(find).url+"\" " + sfxList.get(find).extra + ">"+find+"</audio>";
+                        find = key;
+                        replace = "<audio src=\"" + sfxList.get(find).url + "\" " + sfxList.get(find).extra + ">" + find + "</audio>";
                         break;
                     } else {
                         cursor += 1 + word.length();
@@ -1722,7 +1707,7 @@ public class Janna extends JPanel {
             }
         }
 
-        String half1 = message.substring(0, soundPos), half2 = message.substring(soundPos).replaceFirst("(?i)"+find, replace);
+        String half1 = message.substring(0, soundPos), half2 = message.substring(soundPos).replaceFirst("(?i)" + find, replace);
         message = half1 + half2;
 
         return "<speak>" + message + "</speak>";
@@ -1731,30 +1716,30 @@ public class Janna extends JPanel {
     // Gracefully borrowed from the Twitch4J discord server
     private HashMap<String, String> getEmotes(ChannelMessageEvent e) {
         HashMap<String, String> emoteList = new HashMap<>();
-            final String msg = e.getMessage();
-            final int msgLength = msg.length();
-            e.getMessageEvent().getTagValue("emotes")
-                    .map(emotes -> StringUtils.split(emotes, '/'))
-                    .ifPresent(emotes -> {
-                        for (String emoteStr : emotes) {
-                            final int indexDelim = emoteStr.indexOf(':');
-                            final String emoteId = emoteStr.substring(0, indexDelim);
-                            final String indices = emoteStr.substring(indexDelim + 1);
-                            final String[] indicesArr = StringUtils.split(indices, ',');
-                            for (String specificIndex : indicesArr) {
-                                final int specificDelim = specificIndex.indexOf('-');
-                                final int startIndex = Math.max(Integer.parseInt(specificIndex.substring(0, specificDelim)), 0);
-                                final int endIndex = Math.min(Integer.parseInt(specificIndex.substring(specificDelim + 1)) + 1, msgLength);
-                                final String emoteName = msg.substring(startIndex, endIndex);
-                                if (null == emoteList.get(emoteName)){
-                                    emoteList.put(emoteName, startIndex + "-" + endIndex);
-                                } else {
-                                    emoteList.put(emoteName, emoteList.get(emoteName) + "," + startIndex + "-" + endIndex);
-                                }
+        final String msg = e.getMessage();
+        final int msgLength = msg.length();
+        e.getMessageEvent().getTagValue("emotes")
+                .map(emotes -> StringUtils.split(emotes, '/'))
+                .ifPresent(emotes -> {
+                    for (String emoteStr : emotes) {
+                        final int indexDelim = emoteStr.indexOf(':');
+                        final String emoteId = emoteStr.substring(0, indexDelim);
+                        final String indices = emoteStr.substring(indexDelim + 1);
+                        final String[] indicesArr = StringUtils.split(indices, ',');
+                        for (String specificIndex : indicesArr) {
+                            final int specificDelim = specificIndex.indexOf('-');
+                            final int startIndex = Math.max(Integer.parseInt(specificIndex.substring(0, specificDelim)), 0);
+                            final int endIndex = Math.min(Integer.parseInt(specificIndex.substring(specificDelim + 1)) + 1, msgLength);
+                            final String emoteName = msg.substring(startIndex, endIndex);
+                            if (null == emoteList.get(emoteName)) {
+                                emoteList.put(emoteName, startIndex + "-" + endIndex);
+                            } else {
+                                emoteList.put(emoteName, emoteList.get(emoteName) + "," + startIndex + "-" + endIndex);
                             }
                         }
-                    });
-            return emoteList;
+                    }
+                });
+        return emoteList;
     }
 
     // Incoming messages starting with `!` handled here
@@ -1878,7 +1863,8 @@ public class Janna extends JPanel {
             }
             break;
 
-            default: {}
+            default: {
+            }
         }
     }
 
@@ -1893,20 +1879,20 @@ public class Janna extends JPanel {
 
             switch (type) {
                 case "sfx":
-                    sendMessage(channel, "["+phrase+"] url="+result.getString("result") + ", extra="+result.getString("extra"));
+                    sendMessage(channel, "[" + phrase + "] url=" + result.getString("result") + ", extra=" + result.getString("extra"));
                     break;
                 case "filter":
-                    sendMessage(channel, "["+phrase+"] replacement="+result.getString("result") + ", extra="+result.getString("extra"));
+                    sendMessage(channel, "[" + phrase + "] replacement=" + result.getString("result") + ", extra=" + result.getString("extra"));
                     break;
                 case "response":
-                    sendMessage(channel, "["+phrase+"] response="+result.getString("result") + ", extra="+result.getString("extra"));
+                    sendMessage(channel, "[" + phrase + "] response=" + result.getString("result") + ", extra=" + result.getString("extra"));
                     break;
                 default:
             }
         } catch (SQLException ex) {
             // Meh for now
         } catch (IndexOutOfBoundsException ex) {
-            String usage = "!janna.get"+type + " <phrase>";
+            String usage = "!janna.get" + type + " <phrase>";
             sendMessage(channel, "Malformed command; Usage: " + usage);
         }
     }
@@ -1945,11 +1931,11 @@ public class Janna extends JPanel {
                 } catch (SQLException ex2) {
                     // Sheesh
                     error("Failed to mute " + username, ex);
-                    return "Failed to mute "+username+": " + ex;
+                    return "Failed to mute " + username + ": " + ex;
                 }
             } else {
                 error("Failed to mute " + username, ex);
-                return "Failed to mute "+username+": " + ex;
+                return "Failed to mute " + username + ": " + ex;
             }
         } catch (NumberFormatException ex) {
             return "Malformed expiry date, please specify number of seconds, or leave empty for indefinite";
@@ -1974,7 +1960,7 @@ public class Janna extends JPanel {
     }
 
     public void silenceCurrentVoices() {
-        for (int i = speechQueue.currentlyPlaying.size()-1; i >= 0; i--) {
+        for (int i = speechQueue.currentlyPlaying.size() - 1; i >= 0; i--) {
             try {
                 if (speechQueue.currentlyPlaying.get(i).started) {
                     speechQueue.currentlyPlaying.get(i).clip.stop();
@@ -1997,8 +1983,8 @@ public class Janna extends JPanel {
         }
     }
 
-    public void addReaction (String type, String message, String channel) {
-        String[] split = message.split(" ",3);
+    public void addReaction(String type, String message, String channel) {
+        String[] split = message.split(" ", 3);
         String phrase = "", result = "";
         try {
             phrase = split[1].toLowerCase();
@@ -2011,42 +1997,42 @@ public class Janna extends JPanel {
             switch (type) {
                 case "sfx":
                     sfxList.put(phrase, new Sfx(result, ""));
-                    sendMessage(channel,"Added SFX for phrase: " + phrase);
+                    sendMessage(channel, "Added SFX for phrase: " + phrase);
                     break;
                 case "filter":
                     filterList.put(phrase, result);
-                    sendMessage(channel,"Added filter for phrase: " + phrase);
+                    sendMessage(channel, "Added filter for phrase: " + phrase);
                     break;
                 case "response":
                     responseList.put(phrase, result);
-                    sendMessage(channel,"Added response to phrase: " + phrase);
+                    sendMessage(channel, "Added response to phrase: " + phrase);
                     break;
             }
         } catch (SQLException ex) {
             if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
-                sendMessage(channel,"A reaction for: `"+split[1]+"` already exists");
+                sendMessage(channel, "A reaction for: `" + split[1] + "` already exists");
             } else {
-                error("Failed to insert "+type+": " + message.split(" ")[1], ex);
-                sendMessage(channel,"Failed to add "+type+": " + ex);
+                error("Failed to insert " + type + ": " + message.split(" ")[1], ex);
+                sendMessage(channel, "Failed to add " + type + ": " + ex);
             }
         } catch (IndexOutOfBoundsException ex) {
             warn("add " + type + " command malformatted");
             switch (type) {
                 case "sfx":
-                    sendMessage(channel,"Malformatted command; Usage: `!janna.addSfx <phrase> <https://__________>` (wav, mp3, ogg)");
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.addSfx <phrase> <https://__________>` (wav, mp3, ogg)");
                     break;
                 case "filter":
-                    sendMessage(channel,"Malformatted command; Usage: `!janna.addFilter <phrase> <filtered phrase>`");
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.addFilter <phrase> <filtered phrase>`");
                     break;
                 case "response":
-                    sendMessage(channel,"Malformatted command; Usage: `!janna.addResponse <phrase> <response>`");
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.addResponse <phrase> <response>`");
                     break;
             }
         }
     }
 
-    public void removeReaction (String type, String message, String channel) {
-        String[] split = message.split(" ",3);
+    public void removeReaction(String type, String message, String channel) {
+        String[] split = message.split(" ", 3);
         String phrase = "";
         try {
             phrase = split[1].toLowerCase();
@@ -2057,57 +2043,57 @@ public class Janna extends JPanel {
                 switch (type) {
                     case "sfx":
                         sfxList.remove(phrase);
-                        sendMessage(channel,"Removed SFX for phrase: " + phrase);
+                        sendMessage(channel, "Removed SFX for phrase: " + phrase);
                         break;
                     case "filter":
                         filterList.remove(phrase);
-                        sendMessage(channel,"Removed filter for phrase: " + phrase);
+                        sendMessage(channel, "Removed filter for phrase: " + phrase);
                         break;
                     case "response":
                         responseList.remove(phrase);
-                        sendMessage(channel,"Removed response to phrase: " + phrase);
+                        sendMessage(channel, "Removed response to phrase: " + phrase);
                         break;
                 }
             } else {
-                sendMessage(channel,"No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
+                sendMessage(channel, "No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
             }
         } catch (SQLException ex) {
-            error("Failed to remove "+type+": " + message.split(" ")[1], ex);
-            sendMessage(channel,"Failed to remove "+type+": " + ex);
+            error("Failed to remove " + type + ": " + message.split(" ")[1], ex);
+            sendMessage(channel, "Failed to remove " + type + ": " + ex);
         } catch (IndexOutOfBoundsException ex) {
             warn("remove " + type + " command malformatted");
             switch (type) {
                 case "sfx":
-                    sendMessage(channel,"Malformatted command; Usage: `!janna.removeSfx <phrase>");
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.removeSfx <phrase>");
                     break;
                 case "filter":
-                    sendMessage(channel,"Malformatted command; Usage: `!janna.removeFilter <phrase>`");
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.removeFilter <phrase>`");
                     break;
                 case "response":
-                    sendMessage(channel,"Malformatted command; Usage: `!janna.removeResponse <phrase> `");
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.removeResponse <phrase> `");
                     break;
             }
         }
     }
 
     private void modReaction(String type, String message, String channel) {
-        String[] split = message.split(" ",3);
+        String[] split = message.split(" ", 3);
         String phrase = "";
         try {
             phrase = split[1].toLowerCase();
             String extra = (split.length > 2 ? split[2] : "");
             PreparedStatement prep = sqlCon.prepareStatement("UPDATE reaction SET extra=? WHERE type=? AND phrase=?;");
             prep.setString(1, extra);
-            prep.setString(2 ,type);
+            prep.setString(2, type);
             prep.setString(3, phrase);
             if (prep.executeUpdate() > 0) {
                 switch (type) {
                     case "sfx":
                         String url = sfxList.get(phrase).url;
                         sfxList.put(phrase, new Sfx(url, extra));
-                        sendMessage(channel,"Modified SFX for phrase: " + phrase);
+                        sendMessage(channel, "Modified SFX for phrase: " + phrase);
                         // Delete cached thing, since mods are applied on initial convert
-                        cleanupQueue.queue.add("sfx/" + url.substring(url.lastIndexOf("/")+1));
+                        cleanupQueue.queue.add(Sfx.getFileLocation(url));
                         break;
                     case "filter":
                         break;
@@ -2115,16 +2101,16 @@ public class Janna extends JPanel {
                         break;
                 }
             } else {
-                sendMessage(channel,"No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
+                sendMessage(channel, "No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
             }
         } catch (SQLException ex) {
-            error("Failed to modify "+type+": " + message.split(" ")[1], ex);
-            sendMessage(channel,"Failed to modify "+type+": " + ex);
+            error("Failed to modify " + type + ": " + message.split(" ")[1], ex);
+            sendMessage(channel, "Failed to modify " + type + ": " + ex);
         } catch (IndexOutOfBoundsException ex) {
             warn("modify " + type + " command malformatted");
             switch (type) {
                 case "sfx":
-                    sendMessage(channel,"Malformatted command; Usage: `!janna.modSfx <phrase> [param1=value1,param2=value2]");
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.modSfx <phrase> [param1=value1,param2=value2]");
                     break;
                 case "filter":
                     break;
@@ -2157,8 +2143,3 @@ public class Janna extends JPanel {
         return twitch.getMessagingInterface().getChatters(appConfig.get("mainchannel")).execute().getModerators();
     }
 }
-
-
-
-
-

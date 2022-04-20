@@ -23,11 +23,11 @@ public class Audio {
     public static String desiredExt = ".wav";
 
     public static String concat(String username, LinkedHashMap<String, String> filenames) {
-        int rand = (int)(Math.random()*100000);
-        String out = "temp/se_concat-"+rand+desiredExt;
+        int rand = (int) (Math.random() * 100000);
+        String out = "temp/se_concat-" + rand + desiredExt;
 
         String fileListData = "";
-        String fileListName = "temp/files"+rand+".txt";
+        String fileListName = "temp/files" + rand + ".txt";
         Path fileList = Paths.get(fileListName);
         ArrayList<String> converted = new ArrayList<>();
         try {
@@ -35,16 +35,16 @@ public class Audio {
                 String name = "";
                 String newName = "";
                 if (filename.indexOf("temp/rawtext-") == 0) {
-                    name = "temp/"+filename.substring(13);
+                    name = "temp/" + filename.substring(13);
                     newName = convert(filename, name, "");
                     converted.add(newName);
                 } else if (filename.indexOf("temp/rawsfx-") == 0) {
-                    name = "sfx/"+filename.substring(12);
+                    name = "sfx/" + filename.substring(12);
                     newName = convert(filename, name, filenames.get(filename));
                 } else {
                     newName = filename;
                 }
-                fileListData += "file '../"+newName+"'\n";
+                fileListData += "file '../" + newName + "'\n";
             }
             Files.write(fileList, fileListData.getBytes(StandardCharsets.UTF_8));
 
@@ -59,21 +59,21 @@ public class Audio {
 
             User user = users.get(userIds.get(username));
             // Translate google speed/pitch to ffmpeg
-            double voicePitch = (user == null ? 1 : (1+user.voicePitch / 25));
+            double voicePitch = (user == null ? 1 : (1 + user.voicePitch / 25));
             double voiceSpeed = (user == null ? 1 : user.voiceSpeed);
-            String pitchSpeed = "-af asetrate=24000*"+voicePitch+",aresample=24000,atempo=1/"+voicePitch+"*"+voiceSpeed;
+            String pitchSpeed = "-af asetrate=24000*" + voicePitch + ",aresample=24000,atempo=1/" + voicePitch + "*" + voiceSpeed;
             String cmd = appConfig.get("ffmpegpath") + " -f concat -safe 0 -y -i " + fileListName + " " + pitchSpeed + " " + out;
 
             runCmd(cmd);
-
-            cleanupQueue.queue.addAll(converted);
-            cleanupQueue.queue.add(fileList.toString());
 
             // Wait?
             Path expected = Paths.get(out);
             for (int i = 0; i < 400 && !Files.exists(expected); i++) {
                 Thread.sleep(10);
             }
+
+            cleanupQueue.queue.addAll(converted);
+            cleanupQueue.queue.add(fileList.toString());
             if (!Files.exists(expected)) {
                 warn("Couldn't read message, file not written after 4 seconds: " + expected);
                 return "";
@@ -89,7 +89,7 @@ public class Audio {
     private static void runCmd(String cmd) {
         try {
             Process p = runtime.exec(cmd);
-            p.waitFor(1, TimeUnit.SECONDS);
+            p.waitFor(2, TimeUnit.SECONDS);
         } catch (IOException ex) {
             if (ex.toString().contains("cannot find the file specified")) {
                 warn("Bad FFMPEG path: " + appConfig.get("ffmpegpath"));
@@ -106,7 +106,7 @@ public class Audio {
             String newName = dst.substring(0, dst.lastIndexOf('.')) + desiredExt;
             String cmd =
                     appConfig.get("ffmpegpath") +
-                            " -i " + src + " -af \"aformat=sample_fmts=s16:sample_rates=24000"+extra+"\" -ac 1 " +
+                            " -i " + src + " -af \"aformat=sample_fmts=s16:sample_rates=24000" + extra + "\" -ac 1 " +
                             " " + newName;
             runCmd(cmd);
             cleanupQueue.queue.add(src);

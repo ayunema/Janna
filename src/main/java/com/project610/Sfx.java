@@ -6,7 +6,7 @@ public class Sfx {
     public String url;
     public String extra;
 
-    public Sfx (String url, String extra) {
+    public Sfx(String url, String extra) {
         this.url = url;
         String temp = "";
         for (String param : extra.split(",")) {
@@ -24,8 +24,7 @@ public class Sfx {
             value = value.replaceAll("(?i)db", "");
             if (Janna.ttsMode.equalsIgnoreCase("google")) {
                 key = "soundLevel";
-            }
-            else if (Janna.ttsMode.equalsIgnoreCase("se")) {
+            } else if (Janna.ttsMode.equalsIgnoreCase("se")) {
                 key = ",volume=";
             }
             try {
@@ -51,8 +50,17 @@ public class Sfx {
                     }
                     value = value + "dB";
                 }
-            } catch (Exception ex) { }
+            } catch (Exception ex) {
+            }
         }
-        return key+value;
+        return key + value;
+    }
+
+    public static String getFileLocation(Sfx sfx) {
+        return getFileLocation(sfx.url);
+    }
+
+    public static String getFileLocation(String url) {
+        return "sfx/" + url.substring(url.lastIndexOf("/") + 1, url.lastIndexOf(".")) + Audio.desiredExt;
     }
 }

@@ -26,7 +26,8 @@ public class CleanupQueue implements Runnable {
             }
             try {
                 Thread.sleep(100);
-            } catch (Exception ex) { }
+            } catch (Exception ex) {
+            }
         }
     }
 }
