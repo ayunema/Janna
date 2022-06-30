@@ -6,7 +6,7 @@
 
     <groupId>com.project610</groupId>
     <artifactId>Janna</artifactId>
-    <version>0.6.1</version>
+    <version>0.6.2</version>
 
     <build>
         <resources>

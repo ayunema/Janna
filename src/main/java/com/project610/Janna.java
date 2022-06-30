@@ -35,11 +35,7 @@ import com.project610.async.SpeechQueue;
 import com.project610.structs.JList2;
 import com.project610.utils.Util;
 import net.miginfocom.swing.MigLayout;
-import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry;
-import org.apache.commons.compress.archivers.sevenz.SevenZFile;
-import org.apache.commons.compress.archivers.zip.ZipFile;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.sqlite.SQLiteDataSource;
 
@@ -87,11 +83,14 @@ public class Janna extends JPanel {
     String appVersion = "";
 
     public static HashMap<String, String> filterList = new HashMap<>();
-    public static HashMap<String, Sfx> sfxList = new HashMap<>();
+    public static TreeMap<String, Sfx> sfxList = new TreeMap<>();
     public static HashMap<String, String> responseList = new HashMap<>();
 
     //    static String ttsMode = "google"; // Pitch applies during synthesis, sounds better
     static String ttsMode = "se"; // Way more voices, speed/pitch modify SFX, but *may suddenly crash and burn*
+
+    public static HashMap<String,String> aliases;
+
 
     public Janna(String[] args, JFrame parent) {
         super(new MigLayout("fill, wrap"));
@@ -653,11 +652,12 @@ public class Janna extends JPanel {
         cleanupQueue = new CleanupQueue();
         new Thread(cleanupQueue).start();
 
-        // Load reaction stuff
-        loadReactions();
+        aliases = new HashMap<>();
 
-        // Load mutelist stuff
+        // Load stuff from DB
+        loadReactions();
         loadMuteList();
+        loadAliases();
 
 
         // Get credentials for logging into chat
@@ -818,6 +818,13 @@ public class Janna extends JPanel {
                 + ", value VARCHAR(128)"
                 + ");"
         );
+
+        executeUpdate("CREATE TABLE IF NOT EXISTS command_alias ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", command VARCHAR(128)"
+                + ", alias VARCHAR(128) UNIQUE"
+                + ");"
+        );
     }
 
     private void loadReactions() {
@@ -838,6 +845,22 @@ public class Janna extends JPanel {
                 } else if (type.equalsIgnoreCase("response")) {
                     responseList.put(key, value);
                 }
+            } while (result.next());
+        } catch (Exception ex) {
+            error("Failed to load reactions from DB", ex);
+        }
+    }
+
+    private void loadAliases() {
+        try {
+            ResultSet result = executeQuery("SELECT * FROM command_alias");
+            if (result.isClosed()) return;
+
+            do {
+                String command = result.getString("command");
+                String alias = result.getString("alias");
+
+                aliases.put(alias, command);
             } while (result.next());
         } catch (Exception ex) {
             error("Failed to load reactions from DB", ex);
@@ -1243,7 +1266,7 @@ public class Janna extends JPanel {
 
             // Limit repeated characters to 3 in a row
             try {
-                if (word.matches(".*?(?i)(.)(\\1){2,}.*?")) {
+                if (word.matches(".*?(?i)(.)(\\1){2,}.*?") && !sfxList.keySet().contains(word.toLowerCase())) {
                     StringBuilder sb = new StringBuilder(word);
                     char tempChar = ' ';
                     int tempCharCount = 0;
@@ -1427,6 +1450,11 @@ public class Janna extends JPanel {
             chatArea.append("\n" + s);
             chatArea.setCaretPosition(chatArea.getDocument().getLength());
         }
+    }
+
+    public static void trace(String s) {
+        console("[TRACE] " + s, 8);
+        System.out.println("[TRACE] " + s);
     }
 
     public static void debug(String s) {
@@ -1748,7 +1776,9 @@ public class Janna extends JPanel {
         String[] split = message.split(" ");
         String cmd = split[0];
 
-        switch (cmd.toLowerCase()) {
+        String actualCommand = getCommand(cmd.toLowerCase());
+
+        switch (actualCommand) {
             case "no": {
                 if (!isMod(user.name)) return;
                 silenceCurrentVoices();
@@ -1836,6 +1866,15 @@ public class Janna extends JPanel {
                 if (!isMod(user.name)) return;
                 getReaction("response", message, channel);
             }
+            case "janna.addalias": {
+                if (!isMod(user.name)) return;
+                addAlias(message, channel);
+            }
+            break;
+            case "janna.removealias": {
+                if (!isMod(user.name)) return;
+                removeAlias(message, channel);
+            }
             break;
             case "dontbuttmebro": {
                 if (setUserPref(user, "butt_stuff", "0")) {
@@ -1854,7 +1893,7 @@ public class Janna extends JPanel {
                         " (Speed: " + user.voiceSpeed + " (0.75 ~ 4.0), Pitch: " + user.voicePitch + " (-20 ~ 20), Freebies: " + user.freeVoice);
             }
             break;
-            case "sfxlist": {
+            case "sfx": {
                 String sfxString = "";
                 for (String sfx : sfxList.keySet()) {
                     sfxString += (sfxString.isEmpty() ? "" : ", ") + sfx;
@@ -1862,10 +1901,76 @@ public class Janna extends JPanel {
                 sendMessage(channel, "All SFX: " + sfxString);
             }
             break;
+            case "janna.voiceusers": {
+                try {
+                    PreparedStatement prep = sqlCon.prepareStatement("SELECT COUNT(*) FROM user WHERE voicename LIKE ?;");
+                    prep.setString(1, split[1]);
+                    ResultSet result = prep.executeQuery();
+                    int count = result.getInt(1);
+                    String are_is = (count == 1 ? "There is " + count + " person" : "There are " + count + " people");
+                    sendMessage(channel, are_is + " using the voice: " + split[1]);
+                } catch (SQLException ex) {
+                    // TODO: Eh
+                }
+            }
+            break;
+        }
+    }
 
-            default: {
+    private void addAlias(String message, String channel) {
+        try {
+            String[] split = message.split(" ");
+            String command = split[1].toLowerCase();
+            String alias = split[2].toLowerCase();
+            if (command.charAt(0) == '!') command = command.replaceFirst("!", "");
+            if (alias.charAt(0) == '!') alias = alias.replaceFirst("!", "");
+            PreparedStatement prep = sqlCon.prepareStatement("INSERT OR REPLACE INTO command_alias (command, alias) VALUES (?, ?);");
+            prep.setString(1, command);
+            prep.setString(2, alias);
+            if (prep.executeUpdate() > 0) {
+                aliases.put(alias, command);
+                sendMessage(channel, "Added alias; You can now use the command !"+command +" by typing !"+ alias);
+            } else {
+                sendMessage(channel, "Can't tell ya why, but that addalias command didn't work");
             }
         }
+        catch (SQLException ex) {
+            if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
+                sendMessage(channel, "Alias already exists");
+            } else {
+                sendMessage(channel, "Failed to create alias: " + ex);
+            }
+        }
+        catch (IndexOutOfBoundsException ex) {
+            sendMessage(channel, "Malformed command; Usage: !janna.addalias <command> <alias>");
+        }
+    }
+
+    private void removeAlias(String message, String channel) {
+        try {
+            String[] split = message.split(" ");
+            String alias = split[1].toLowerCase();
+            if (alias.charAt(0) == '!') alias = alias.replaceFirst("!", "");
+            PreparedStatement prep = sqlCon.prepareStatement("DELETE FROM command_alias WHERE alias=?;");
+            prep.setString(1, alias);
+            if (prep.executeUpdate() > 0) {
+                aliases.remove(alias);
+                sendMessage(channel, "Removed alias: " + alias);
+            }
+        }
+        catch (SQLException ex) {
+            sendMessage(channel, "Failed to remove alias: " + ex);
+        }
+        catch (IndexOutOfBoundsException ex) {
+            sendMessage(channel, "Malformed command; Usage: !janna.removealias <alias>");
+        }
+    }
+
+    // Return the 'root' command, in the event that a user specified an alias
+    private String getCommand(String alias) {
+        String command = aliases.get(alias);
+        if (command == null) return alias;
+        else return command;
     }
 
     private void getReaction(String type, String message, String channel) {
