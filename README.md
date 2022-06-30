@@ -57,9 +57,14 @@ ___
     * Useful example: !janna.addresponse !voices https://docs.google.com/spreadsheets/d/1hrhoy3yoLjKE_N_XgHwG8qFAWWxMch6CerqV2xX-XOs
   * `!janna.removefilter <phrase>` Remove the filter associated with `phrase`
   * `!janna.addreponse <phrase> <response>` Write a response in chat if `phrase` shows up anywhere in a user's message
+  * `!janna.addalias <oldCommand> <newCommand>` Allows users to use `newCommand` instead of `oldCommand`
+    * Example: !janna.addalias janna.addsfx addsfx (Note: You can write !addsfx or addsfx, it doesn't matter)
+  * `!janna.removealias <newCommand>` Remove the alias associated with `newCommand`
 
   #### Everybody commands
   * (Janna is very mature, and 3% of chat messages will have "but enough about my butt" read after them)
     * `!dontbuttmebro` Your messages will no longer "enough about my butt"
     * `!dobuttmebro` If you change your mind, this will turn "enough about my butt" back on
   * `!voice` Show in chat what voice, speed, and pitch you are currently using
+  * `!janna.getsfx <sfxCode>` Outputs the URL and any extra modifications (eg: Volume) for `sfxCode`
+  * `!janna.voiceusers <voiceCode>` Tells you how many different chatters are currently using `voiceCode` (In case you want to be unique)
