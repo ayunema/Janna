@@ -22,6 +22,7 @@ ___
 
 * You should automatically get prompted to do some login stuff
   * Enter a username and oauth token for the bot to use for talking to chat (This can be your own account or some alt account)
+    * If you need an oauth token, you can generate one here: https://twitchapps.com/tmi/
     * Also enter the channel you'll be streaming from as the mainchannel (Any additional channels you'd like to listen in on can go into extrachannels)
 
 * Now you'll be prompted to log in as the broadcaster via Twitch. 
