@@ -108,19 +108,6 @@ public class SeVoice {
         }
     }
 
-    public URL urlEncode (String string){
-        try {
-            // I don't know why
-            String decoded = URLDecoder.decode(string, "UTF-8");
-            URL url = new URL(decoded);
-            URI uri = new URI(url.getProtocol(), url.getUserInfo(), url.getHost(), url.getPort(), url.getPath(), url.getQuery(), url.getRef());
-            return uri.toURL();
-        } catch (Exception ex) {
-            ex.printStackTrace();
-            return null;
-        }
-    }
-
     public URI uriEncode (String string){
         try {
             // I don't know why

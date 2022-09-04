@@ -10,6 +10,8 @@ import static com.project610.Janna.*;
 
 public class Auth {
     private static User mainChannel;
+    private static WebBrowser wb;
+
     public static void getToken() {
         String token = "";
         try {
@@ -31,14 +33,20 @@ public class Auth {
 
             warn("Missing or expired Helix Auth Token. Prompting to authenticate for main channel... ");
             // If no tokens saved, or all saved tokens seem invalid, load a browser to authenticate with Twitch
-            WebBrowser wb = new WebBrowser("https://id.twitch.tv/oauth2/authorize?client_id=" + Creds._clientid +
-                    "&redirect_uri=https://www.project610.com/janna/auth.html&response_type=token&scope=" +
-                    "channel:manage:redemptions channel:manage:broadcast"
-                    , false, false, new String[0]);
+            //if (wb == null) {
+                wb = new WebBrowser("https://id.twitch.tv/oauth2/authorize?client_id=" + Creds._clientid +
+                        "&redirect_uri=https://www.project610.com/janna/auth.html&response_type=token&scope=" +
+                        "channel:manage:redemptions channel:manage:broadcast"
+                        , false, true, new String[0]);
+            /*} else {
+                wb.loadUrl("https://id.twitch.tv/oauth2/authorize?client_id=" + Creds._clientid +
+                        "&redirect_uri=https://www.project610.com/janna/auth.html&response_type=token&scope=" +
+                        "channel:manage:redemptions channel:manage:broadcast");
+                wb.setVisible(true);
+            }*/
         }
         catch (Exception ex) {
-            System.err.println("Screwed up auth: " + ex);
-            ex.printStackTrace();
+            error("Screwed up auth: ", ex);
         }
     }
 

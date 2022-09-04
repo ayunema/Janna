@@ -31,6 +31,7 @@ import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
 
 import com.netflix.hystrix.exception.HystrixRuntimeException;
 import com.project610.async.CleanupQueue;
+import com.project610.async.MessageQueue;
 import com.project610.async.SpeechQueue;
 import com.project610.structs.JList2;
 import com.project610.utils.Util;
@@ -61,6 +62,7 @@ public class Janna extends JPanel {
     public static String defaultVoice = "en-US-Standard-B";
     public static SpeechQueue speechQueue;
     public static CleanupQueue cleanupQueue;
+    public static MessageQueue messageQueue;
 
     public static HashMap<Integer, User> users = new HashMap<>();
     public static HashMap<String, Integer> userIds = new HashMap<>();
@@ -75,6 +77,7 @@ public class Janna extends JPanel {
     public boolean whitelistOnly = false;
 
     public TreeMap<String, JRadioButtonMenuItem> emoteHandleMethods = new TreeMap<>();
+    public TreeMap<String, JRadioButtonMenuItem> chatReadingMethods = new TreeMap<>();
 
 
     // Config stuff
@@ -89,7 +92,8 @@ public class Janna extends JPanel {
     //    static String ttsMode = "google"; // Pitch applies during synthesis, sounds better
     static String ttsMode = "se"; // Way more voices, speed/pitch modify SFX, but *may suddenly crash and burn*
 
-    public static HashMap<String,String> aliases;
+    public static HashMap<String,String> commandAliases;
+    public static HashMap<String,String> sfxAliases;
 
 
     public Janna(String[] args, JFrame parent) {
@@ -281,6 +285,21 @@ public class Janna extends JPanel {
             handleEmoteMenu.add(method);
         }
 
+        JMenu chatReadingMenu = new JMenu("Chat reading");
+        chatMenu.add(chatReadingMenu);
+
+        chatReadingMethods.put("Default", new JRadioButtonMenuItem("Default"));
+        chatReadingMethods.put("Whitelist only", new JRadioButtonMenuItem("Whitelist only"));
+        chatReadingMethods.put("SFX only", new JRadioButtonMenuItem("SFX only"));
+        for (String key : chatReadingMethods.keySet()) {
+            JRadioButtonMenuItem method = chatReadingMethods.get(key);
+            method.addActionListener(e -> setChatReadingMethod(method.getText()));
+            if (key.equalsIgnoreCase(appConfig.get("chatreading"))) {
+                setChatReadingMethod(method.getText());
+            }
+            chatReadingMenu.add(method);
+        }
+
         // CONFIG MENU
         JMenu configMenu = new JMenu("Config");
         menuBar.add(configMenu);
@@ -352,6 +371,25 @@ public class Janna extends JPanel {
             ffmpegDialog.setVisible(true);
             if (!selected[0].isEmpty()) {
                 appConfig.put("ffmpegpath", selected[0]);
+            }
+        });
+
+        configMenu.add(new JSeparator());
+
+        JMenuItem clearAuthTokenItem = new JMenuItem("Clear Auth Token Data");
+        configMenu.add(clearAuthTokenItem);
+        clearAuthTokenItem.addActionListener(e -> {
+            try {
+                int status = Janna.instance.executeUpdate("DELETE FROM auth");
+                if (status > 0) {
+                    info("Deleted auth token data; You should be prompted to log in again now.");
+                } else {
+                    info("Didn't find any auth token data to delete");
+                }
+                Auth.getToken();
+
+            } catch (Exception ex) {
+                error("Error clearing auth token data!", ex);
             }
         });
 
@@ -614,6 +652,20 @@ public class Janna extends JPanel {
         }
     }
 
+    private void setChatReadingMethod(String newMethod) {
+        if (null == newMethod) {
+            newMethod = "Default";
+        }
+        for (String key : chatReadingMethods.keySet()) {
+            if (key.equalsIgnoreCase(newMethod)) {
+                appConfig.put("chatreading", newMethod);
+                chatReadingMethods.get(key).setSelected(true);
+            } else {
+                chatReadingMethods.get(key).setSelected(false);
+            }
+        }
+    }
+
     // Lazy UI stuff, will eventually obsolete this crap
     public static Component prefSize(Component component, int w, int h) {
         component.setPreferredSize(new Dimension(w, h));
@@ -652,7 +704,12 @@ public class Janna extends JPanel {
         cleanupQueue = new CleanupQueue();
         new Thread(cleanupQueue).start();
 
-        aliases = new HashMap<>();
+        // Start a thread to write potentially spammy messages
+        messageQueue = new MessageQueue();
+        new Thread(messageQueue).start();
+
+        commandAliases = new HashMap<>();
+        sfxAliases = new HashMap<>();
 
         // Load stuff from DB
         loadReactions();
@@ -825,6 +882,13 @@ public class Janna extends JPanel {
                 + ", alias VARCHAR(128) UNIQUE"
                 + ");"
         );
+
+        executeUpdate("CREATE TABLE IF NOT EXISTS sfx_alias ( "
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                + ", sfx VARCHAR(128)"
+                + ", alias VARCHAR(128) UNIQUE"
+                + ");"
+        );
     }
 
     private void loadReactions() {
@@ -860,7 +924,21 @@ public class Janna extends JPanel {
                 String command = result.getString("command");
                 String alias = result.getString("alias");
 
-                aliases.put(alias, command);
+                commandAliases.put(alias, command);
+            } while (result.next());
+        } catch (Exception ex) {
+            error("Failed to load reactions from DB", ex);
+        }
+
+        try {
+            ResultSet result = executeQuery("SELECT * FROM sfx_alias");
+            if (result.isClosed()) return;
+
+            do {
+                String sfx = result.getString("sfx");
+                String alias = result.getString("alias");
+
+                sfxAliases.put(alias, sfx);
             } while (result.next());
         } catch (Exception ex) {
             error("Failed to load reactions from DB", ex);
@@ -899,6 +977,7 @@ public class Janna extends JPanel {
             Creds._password = appConfig.get("oauth");
 
             setEmoteHandleMethod(appConfig.get("emotehandle"));
+            setChatReadingMethod(appConfig.get("chatreading"));
             setWindowPos(appConfig.get("windowpos"));
 
         } catch (Exception ex) {
@@ -1220,7 +1299,7 @@ public class Janna extends JPanel {
         }
     }
 
-    // Send a message to Twitch
+    // Send a message to Twitch TODO: Retry rejected messages if possible
     public static void sendMessage(String s) {
         for (String channel : twitch.getChat().getChannels()) {
             sendMessage(channel, s);
@@ -1228,8 +1307,8 @@ public class Janna extends JPanel {
     }
 
     // Send a message to a specific channel on Twitch
-    public static void sendMessage(String channel, String s) {
-        twitch.getChat().sendMessage(channel, s);
+    public static boolean sendMessage(String channel, String s) {
+        return twitch.getChat().sendMessage(channel, s);
     }
 
     // Screw around with the text of a message before having it read aloud (Anti-spam measures will go here)
@@ -1237,10 +1316,14 @@ public class Janna extends JPanel {
         String result = "";
         //s = s.toLowerCase();
 
-
+        String exclude = "^(?!";
+        for (String key : sfxList.keySet()) {
+            exclude += (exclude == "^(?!" ? "" : "|") + key;
+        }
+        exclude += ")";
         for (String find : filterList.keySet()) {
             String replace = filterList.get(find);
-            s = s.replaceAll("(?i)" + find, replace);
+            s = s.replaceAll("(?i)" + exclude + find, replace);
         }
 
         // Sanitize for the API's sake
@@ -1262,6 +1345,12 @@ public class Janna extends JPanel {
             } else {
                 tempWord = word;
                 tempWordCount = 0;
+            }
+
+            // Translate sfx aliases
+            String actualSfx = instance.getActualSfx(word.toLowerCase());
+            if (!word.equalsIgnoreCase(actualSfx)) {
+                word = actualSfx;
             }
 
             // Limit repeated characters to 3 in a row
@@ -1646,6 +1735,17 @@ public class Janna extends JPanel {
         }
         if (!half2.isEmpty()) messages.add(new TTSMessage("message", half2));
 
+        // sfx only mode
+        String chatReadingMethod = appConfig.get("chatreading");
+        if (chatReadingMethod.equalsIgnoreCase("SFX only")) {
+            ArrayList<TTSMessage> messages2 = new ArrayList<>();
+            for (TTSMessage ttsMessage : messages) {
+                if (ttsMessage.type.equals("sfx")) {
+                    messages2.add(ttsMessage);
+                }
+            }
+            return messages2.toArray(new TTSMessage[0]);
+        }
 
         return messages.toArray(new TTSMessage[0]);
     }
@@ -1780,12 +1880,12 @@ public class Janna extends JPanel {
 
         switch (actualCommand) {
             case "no": {
-                if (!isMod(user.name)) return;
+                if (!isVIP(user.name)) return;
                 silenceCurrentVoices();
             }
             break;
             case "stfu": {
-                if (!isMod(user.name)) return;
+                if (!isVIP(user.name)) return;
                 silenceAllVoices();
             }
             break;
@@ -1876,6 +1976,16 @@ public class Janna extends JPanel {
                 removeAlias(message, channel);
             }
             break;
+            case "janna.addsfxalias": {
+                if (!isMod(user.name)) return;
+                addSfxAlias(message, channel);
+            }
+            break;
+            case "janna.removesfxalias": {
+                if (!isMod(user.name)) return;
+                removeSfxAlias(message, channel);
+            }
+            break;
             case "dontbuttmebro": {
                 if (setUserPref(user, "butt_stuff", "0")) {
                     twitch.getChat().sendMessage(channel, "Okay, I won't butt you, bro.");
@@ -1895,10 +2005,52 @@ public class Janna extends JPanel {
             break;
             case "sfx": {
                 String sfxString = "";
-                for (String sfx : sfxList.keySet()) {
+                ArrayList<String> sfxResults = new ArrayList<>();
+                if (split.length > 1) {
+                    String search = split[1];
+                    for (String key : sfxList.keySet()) {
+                        if (key.matches(".*?"+search+".*?")) {
+                            sfxResults.add(key);
+                        }
+                    }
+                } else {
+                    for (String key : sfxList.keySet()) {
+                        sfxResults.add(key);
+                    }
+                }
+
+                int limit = 480; // He's not even at 480 yet!
+                for (String sfx : sfxResults) {
                     sfxString += (sfxString.isEmpty() ? "" : ", ") + sfx;
                 }
-                sendMessage(channel, "All SFX: " + sfxString);
+                if (sfxString.length() < limit) {
+                    sendMessage(channel, "All SFX: " + sfxString);
+                } else {
+                    ArrayList<String> sfxStrings = new ArrayList<>();
+                    while (!sfxString.isEmpty()) {
+                        // String short enough yet?
+                        if (sfxString.length() < limit) {
+                            sfxStrings.add(sfxString);
+                            sfxString = "";
+                        }
+                        // String still too long
+                        else {
+                            String temp = sfxString.substring(0, limit);
+                            int tempIndex = temp.lastIndexOf(",");
+                            if (tempIndex == -1) {
+                                // Bruh did you make a sfx with like 500char long name? Get outta here
+                                warn("C'mon, yo");
+                                sfxString = "";
+                            } else {
+                                sfxStrings.add(sfxString.substring(0, tempIndex));
+                                sfxString = sfxString.substring(tempIndex + 1).trim();
+                            }
+                        }
+                    }
+                    for (int i = 0; i < sfxStrings.size(); i++) {
+                        messageQueue.queueMessage(channel, "All SFX ["+(i+1)+"/"+sfxStrings.size()+"]: " + sfxStrings.get(i));
+                    }
+                }
             }
             break;
             case "janna.voiceusers": {
@@ -1922,13 +2074,17 @@ public class Janna extends JPanel {
             String[] split = message.split(" ");
             String command = split[1].toLowerCase();
             String alias = split[2].toLowerCase();
+            if (commandAliases.keySet().contains(alias)) {
+                sendMessage("That alias is already in use");
+                return;
+            }
             if (command.charAt(0) == '!') command = command.replaceFirst("!", "");
             if (alias.charAt(0) == '!') alias = alias.replaceFirst("!", "");
             PreparedStatement prep = sqlCon.prepareStatement("INSERT OR REPLACE INTO command_alias (command, alias) VALUES (?, ?);");
             prep.setString(1, command);
             prep.setString(2, alias);
             if (prep.executeUpdate() > 0) {
-                aliases.put(alias, command);
+                commandAliases.put(alias, command);
                 sendMessage(channel, "Added alias; You can now use the command !"+command +" by typing !"+ alias);
             } else {
                 sendMessage(channel, "Can't tell ya why, but that addalias command didn't work");
@@ -1954,7 +2110,7 @@ public class Janna extends JPanel {
             PreparedStatement prep = sqlCon.prepareStatement("DELETE FROM command_alias WHERE alias=?;");
             prep.setString(1, alias);
             if (prep.executeUpdate() > 0) {
-                aliases.remove(alias);
+                commandAliases.remove(alias);
                 sendMessage(channel, "Removed alias: " + alias);
             }
         }
@@ -1966,11 +2122,72 @@ public class Janna extends JPanel {
         }
     }
 
+    private void addSfxAlias(String message, String channel) {
+        try {
+            String[] split = message.split(" ");
+            String sfx = split[1].toLowerCase();
+            String alias = split[2].toLowerCase();
+            if (!sfxList.keySet().contains(sfx)) {
+                sendMessage("That SFX don't exist, yo");
+                return;
+            }
+            if (sfxAliases.keySet().contains(alias)) {
+                sendMessage("That alias is already in use");
+                return;
+            }
+            PreparedStatement prep = sqlCon.prepareStatement("INSERT OR REPLACE INTO sfx_alias (sfx, alias) VALUES (?, ?);");
+            prep.setString(1, sfx);
+            prep.setString(2, alias);
+            if (prep.executeUpdate() > 0) {
+                sfxAliases.put(alias, sfx);
+                sendMessage(channel, "Added sfx alias; You can now use the sfx `"+sfx +"` by typing `"+ alias + "`");
+            } else {
+                sendMessage(channel, "Can't tell ya why, but that addSfxAlias command didn't work");
+            }
+        }
+        catch (SQLException ex) {
+            if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
+                sendMessage(channel, "SFX alias already exists");
+            } else {
+                sendMessage(channel, "Failed to create alias: " + ex);
+            }
+        }
+        catch (IndexOutOfBoundsException ex) {
+            sendMessage(channel, "Malformed command; Usage: !janna.addSfxAlias <sfx> <alias>");
+        }
+    }
+
+    private void removeSfxAlias(String message, String channel) {
+        try {
+            String[] split = message.split(" ");
+            String alias = split[1].toLowerCase();
+            PreparedStatement prep = sqlCon.prepareStatement("DELETE FROM sfx_alias WHERE alias=?;");
+            prep.setString(1, alias);
+            if (prep.executeUpdate() > 0) {
+                sfxAliases.remove(alias);
+                sendMessage(channel, "Removed sfx alias: " + alias);
+            }
+        }
+        catch (SQLException ex) {
+            sendMessage(channel, "Failed to remove sfx alias: " + ex);
+        }
+        catch (IndexOutOfBoundsException ex) {
+            sendMessage(channel, "Malformed command; Usage: !janna.removeSfxAlias <alias>");
+        }
+    }
+
     // Return the 'root' command, in the event that a user specified an alias
     private String getCommand(String alias) {
-        String command = aliases.get(alias);
+        String command = commandAliases.get(alias);
         if (command == null) return alias;
         else return command;
+    }
+
+    // Return the 'root' command, in the event that a user specified an alias
+    private String getActualSfx(String alias) {
+        String sfx = sfxAliases.get(alias);
+        if (sfx == null) return alias;
+        else return sfx;
     }
 
     private void getReaction(String type, String message, String channel) {
