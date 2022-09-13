@@ -1316,14 +1316,14 @@ public class Janna extends JPanel {
         String result = "";
         //s = s.toLowerCase();
 
-        String exclude = "^(?!";
+        String exclude = "(?!";
         for (String key : sfxList.keySet()) {
-            exclude += (exclude == "^(?!" ? "" : "|") + key;
+            exclude += (exclude == "(?!" ? "" : "|") + key;
         }
         exclude += ")";
         for (String find : filterList.keySet()) {
             String replace = filterList.get(find);
-            s = s.replaceAll("(?i)" + exclude + find, replace);
+            s = s.replaceAll("\\b(?i)" + exclude + find + "\\b", replace);
         }
 
         // Sanitize for the API's sake
@@ -1953,7 +1953,6 @@ public class Janna extends JPanel {
             }
             break;
             case "janna.getsfx": {
-                if (!isMod(user.name)) return;
                 getReaction("sfx", message, channel);
             }
             break;
