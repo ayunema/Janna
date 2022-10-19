@@ -1,12 +1,17 @@
 package com.project610;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.TreeSet;
 
 public class Sfx {
     public String url;
     public String extra;
+    public String created;
+    public HashMap<String, String> mods;
+    public TreeSet<String> aliases;
 
-    public Sfx(String url, String extra) {
+    /*public Sfx(String url, String extra) {
         this.url = url;
         String temp = "";
         for (String param : extra.split(",")) {
@@ -15,6 +20,23 @@ public class Sfx {
             }
         }
         this.extra = temp;
+    }*/
+
+    public Sfx(String url, HashMap<String, String> mods) {
+        this.url = url;
+        this.mods = mods;
+        if (null == mods) {
+            mods = new HashMap<>();
+        }
+        String temp = "";
+        for (String key : mods.keySet()) {
+            if (key.equalsIgnoreCase("volume")) {
+                temp += " " + parseParam(key + "=" + mods.get(key));
+            }
+        }
+        this.mods = mods;
+        this.extra = temp;
+        this.aliases = new TreeSet<>();
     }
 
     public static String parseParam(String s) {
@@ -55,6 +77,8 @@ public class Sfx {
         }
         return key + value;
     }
+
+
 
     public static String getFileLocation(Sfx sfx) {
         return getFileLocation(sfx.url);

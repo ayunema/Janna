@@ -32,13 +32,17 @@ import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
 import com.netflix.hystrix.exception.HystrixRuntimeException;
 import com.project610.async.CleanupQueue;
 import com.project610.async.MessageQueue;
+import com.project610.async.SfxPageUploader;
 import com.project610.async.SpeechQueue;
 import com.project610.structs.JList2;
 import com.project610.utils.Util;
 import net.miginfocom.swing.MigLayout;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.net.ftp.FTPClient;
+import org.apache.commons.net.ftp.FTPFile;
 import org.sqlite.SQLiteDataSource;
+import sun.net.ftp.FtpClient;
 
 import javax.swing.*;
 
@@ -63,6 +67,7 @@ public class Janna extends JPanel {
     public static SpeechQueue speechQueue;
     public static CleanupQueue cleanupQueue;
     public static MessageQueue messageQueue;
+    public static SfxPageUploader sfxPageUploader;
 
     public static HashMap<Integer, User> users = new HashMap<>();
     public static HashMap<String, Integer> userIds = new HashMap<>();
@@ -88,12 +93,15 @@ public class Janna extends JPanel {
     public static HashMap<String, String> filterList = new HashMap<>();
     public static TreeMap<String, Sfx> sfxList = new TreeMap<>();
     public static HashMap<String, String> responseList = new HashMap<>();
+    public static HashMap<String, HashMap<String,String>> reactionMods = new HashMap<>();
 
     //    static String ttsMode = "google"; // Pitch applies during synthesis, sounds better
     static String ttsMode = "se"; // Way more voices, speed/pitch modify SFX, but *may suddenly crash and burn*
 
     public static HashMap<String,String> commandAliases;
     public static HashMap<String,String> sfxAliases;
+
+    public static boolean sfxDirty = false;
 
 
     public Janna(String[] args, JFrame parent) {
@@ -393,6 +401,14 @@ public class Janna extends JPanel {
             }
         });
 
+        // SFX MENU
+        JMenu sfxMenu = new JMenu("SFX");
+        menuBar.add(sfxMenu);
+
+        JMenuItem sfxListPageItem = new JMenuItem("SFX List Webpage Config");
+        sfxListPageItem.addActionListener(e -> sfxPagePrompt());
+        sfxMenu.add(sfxListPageItem);
+
         // MENUBAR DONE
         menuBar.add(Box.createHorizontalGlue());
 
@@ -625,6 +641,201 @@ public class Janna extends JPanel {
         }
     }
 
+    private void sfxPagePrompt() {
+        JDialog sfxPageDialog = new JDialog(parent, "SFX List Webpage Config", true);
+        sfxPageDialog.setLocation(getPopupLocation());
+        sfxPageDialog.setLayout(new MigLayout("fillx, w 600"));
+
+        JPanel inputPanel = new JPanel(new MigLayout("fillx"));
+        sfxPageDialog.add(inputPanel, "growx");
+
+        inputPanel.add(new JLabel("In order to display SFX without flooding chat, you can have a simple webpage "
+                + "uploaded to a webserver for users to look at whenever they want"), "span, wrap");
+
+        inputPanel.add(Box.createRigidArea(new Dimension(25, 25)), "wrap");
+
+        inputPanel.add(new JLabel("FTP Hostname"));
+        JTextField hostnameField = new JTextField(appConfig.get("sfx_ftp_hostname"));
+        inputPanel.add(hostnameField, "growx, pushx, wrap");
+
+        inputPanel.add(new JLabel("FTP Username"));
+        JTextField usernameField = new JTextField(appConfig.get("sfx_ftp_username"));
+        inputPanel.add(usernameField, "growx, pushx, wrap");
+
+        inputPanel.add(new JLabel("FTP Password"));
+        JPasswordField passwordField = new JPasswordField(appConfig.get("sfx_ftp_password"));
+        inputPanel.add(passwordField, "growx, pushx, wrap");
+
+        inputPanel.add(new JLabel("FTP Path"));
+        JTextField pathField = new JTextField(appConfig.get("sfx_ftp_path"));
+        inputPanel.add(pathField, "growx, pushx, wrap");
+
+        inputPanel.add(Box.createRigidArea(new Dimension(25, 25)), "wrap");
+
+        inputPanel.add(new JLabel("Webpage URL"));
+        JTextField urlField = new JTextField(appConfig.get("sfx_page_url"));
+        inputPanel.add(urlField, "growx, pushx, wrap");
+
+        inputPanel.add(new JLabel("Webpage Enabled"));
+        JCheckBox enabledBox = new JCheckBox();
+        inputPanel.add(enabledBox, "growx, pushx, wrap");
+        if (appConfig.get("sfx_page_enabled").equals("1")) {
+            enabledBox.setSelected(true);
+        }
+
+        JPanel buttonPanel = new JPanel(new MigLayout());
+        sfxPageDialog.add(buttonPanel, "south");
+        JButton okButton = new JButton("OK");
+        okButton.addActionListener(e -> {
+            sfxPageDialog.dispose();
+            setSfxPageStuff(hostnameField.getText(), usernameField.getText(), new String(passwordField.getPassword()),
+                    pathField.getText(), urlField.getText(), enabledBox.isSelected());
+        });
+        buttonPanel.add(okButton);
+        JButton cancelButton = new JButton("Cancel");
+        cancelButton.addActionListener(e -> sfxPageDialog.dispose());
+        buttonPanel.add(cancelButton);
+
+        usernameField.addActionListener(okButton.getActionListeners()[0]);
+        passwordField.addActionListener(okButton.getActionListeners()[0]);
+        pathField.addActionListener(okButton.getActionListeners()[0]);
+        urlField.addActionListener(okButton.getActionListeners()[0]);
+
+        sfxPageDialog.pack();
+        sfxPageDialog.setVisible(true);
+    }
+
+    private void setSfxPageStuff(String hostname, String username, String password, String path, String url, boolean enabled) {
+        appConfig.put("sfx_ftp_hostname", hostname);
+        appConfig.put("sfx_ftp_username", username);
+        appConfig.put("sfx_ftp_password", password);
+        appConfig.put("sfx_ftp_path", path);
+        appConfig.put("sfx_page_url", url);
+        appConfig.put("sfx_page_enabled", enabled ? "1" : "0");
+        writeSettings();
+
+        if (enabled) {
+            uploadSfxListPage();
+        }
+    }
+
+    public void uploadSfxListPage() {
+        FTPClient ftp = new FTPClient();
+        //FtpClient ftp = FtpClient.create();
+        try {
+            File f = generateSfxPage();
+
+            ftp.connect(appConfig.get("sfx_ftp_hostname"));
+            boolean login = ftp.login(appConfig.get("sfx_ftp_username"), appConfig.get("sfx_ftp_password"));
+            ftp.setControlEncoding("UTF-8");
+            ftp.setFileType(FTPClient.BINARY_FILE_TYPE);
+            FileInputStream f_in = new FileInputStream(f);
+            ftp.storeFile(appConfig.get("sfx_ftp_path") + "/sfxlist.html", f_in);
+            f_in.close();
+            trace(ftp.getReplyString());
+            info("Uploaded SFX List Page to FTP; Link: " + appConfig.get("sfx_page_url"));
+        } catch (Exception ex) {
+            error("Failed to upload SFX List page", ex);
+        }
+    }
+
+    private File generateSfxPage() throws IOException {
+        Path p = Paths.get("temp/sfxlist.html");
+        StringBuilder sb = new StringBuilder();
+        sb.append("<html>");
+
+        sb.append("<head>")
+                .append("<meta charset='utf-8'>")
+                .append("<meta http-equiv='Cache-Control' content='no-cache, no-store, must-revalidate' />")
+                .append("<meta http-equiv='Pragma' content='no-cache' />")
+                .append("<meta http-equiv='Expires' content='0' />")
+                .append("<title>Janna SFX List</title>")
+                .append("<style type='text/css'>")
+                .append("body { margin: 0px; padding: 0px; background: #222; color: #ddd; font-family: Tahoma; }")
+                .append("a { color: #ddd; }")
+                .append("a:visited { color: #ccc; }")
+                .append(".row { margin-bottom: 5px; }")
+                .append(".cell { padding: 3px 10px; float: left; overflow-wrap: break-word; }")
+                .append(".cellheader { font-weight: bold; background: #66d; color: #fff; }")
+                .append(".copy { border:none; background: none; cursor: pointer; }")
+                .append(".alias { border: 1px dashed #888; border-radius: 4px; margin: 0px 3px; padding: 1px 2px; }")
+                .append("</style>")
+                .append("</head>");
+
+        sb.append("<body>");
+
+        sb.append("<div class='cell cellheader' style='width: 40px;'>&nbsp;</div>");
+        sb.append("<div class='cell cellheader' style='width: 150px;'>Phrase</div>");
+        sb.append("<div class='cell cellheader' style='width: 200px;'>Mods</div>");
+        sb.append("<div class='cell cellheader' style='width: 150px;'>Aliases</div>");
+        sb.append("<div class='cell cellheader' style='width: 200px;'>Created</div>");
+        sb.append("<div style='clear: both;'></div>");
+
+        int rows = 0;
+        for (String key : sfxList.keySet()) {
+            Sfx sfx = sfxList.get(key);
+            String background = rows%2==0?"background:#003":"background:#001";
+
+            // Row
+            sb.append("<div class='row' style='")
+                    .append(background)
+                    .append("'>");
+
+            sb.append("<div class='cell' style='width: 40px;'>")
+                    .append("<input type='button' class='copy' value='📋' onclick='navigator.clipboard.writeText(\"")
+                    .append(key)
+                    .append("\");'/>")
+                    .append("</div>");
+
+            sb.append("<div class='cell' style='width: 150px;'>");
+
+            String url = sfx.url;
+            if (!url.equalsIgnoreCase("multi")) {
+                sb.append("<a href='")
+                        .append(url)
+                        .append("'>");
+            }
+            sb.append(key);
+            if (!url.equalsIgnoreCase("multi")) {
+                sb.append("</a>");
+            }
+            sb.append("</div>");
+
+            sb.append("<div class='cell' style='width: 200px;'>");
+            HashMap<String,String> mods = sfx.mods;
+            for (String mod : mods.keySet()) {
+                sb.append(mod)
+                        .append(" = ")
+                        .append(mods.get(mod))
+                        .append("<br/>");
+            }
+            sb.append("</div>");
+
+            sb.append("<div class='cell' style='width: 150px;'>");
+            for (String alias : sfx.aliases) {
+                sb.append("<span class='alias'>")
+                        .append(alias)
+                        .append("</span>");
+            }
+            sb.append("</div>");
+
+            sb.append("<div class='cell' style='width: 200px;'>")
+                .append(sfx.created)
+                .append("</div>");
+
+            sb.append("<div style='clear: both;'></div>");
+
+            // End row
+            sb.append("</div>");
+            rows++;
+        }
+        sb.append("</body></html>");
+        Files.write(p, sb.toString().getBytes());
+
+        File f = new File("temp/sfxlist.html");
+        return f;
+    }
+
     private void writeSettings() {
         for (String key : appConfig.keySet()) {
             try {
@@ -711,11 +922,14 @@ public class Janna extends JPanel {
         commandAliases = new HashMap<>();
         sfxAliases = new HashMap<>();
 
+
         // Load stuff from DB
         loadReactions();
         loadMuteList();
         loadAliases();
 
+        sfxPageUploader = new SfxPageUploader();
+        new Thread(sfxPageUploader).start();
 
         // Get credentials for logging into chat
         try {
@@ -822,73 +1036,98 @@ public class Janna extends JPanel {
         emptyStatement.execute();
         EMPTY_RESULT_SET = emptyStatement.getResultSet();
 
-        executeUpdate("CREATE TABLE IF NOT EXISTS user ( "
-                + " id INTEGER PRIMARY KEY AUTOINCREMENT "
-                + ", username VARCHAR(128) UNIQUE"
-                + ", voicename VARCHAR(128) DEFAULT 'en-US-Standard-B'"
-                + ", voicespeed DOUBLE DEFAULT 1"
-                + ", voicepitch DOUBLE DEFAULT 0"
-                + ", voicevolume DOUBLE DEFAULT 1"
-                + ", freevoice INTEGER DEFAULT 1"
-                + ");"
-        );
+        ResultSet result = executeQuery("PRAGMA user_version;");
+        long dbVersion = result.getLong(1);
+        debug("dbVersion: " + dbVersion);
 
-        executeUpdate("CREATE TABLE IF NOT EXISTS pref ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", name VARCHAR(128) UNIQUE"
-                + ");"
-        );
+        if (dbVersion == 0) {
+            executeUpdate("CREATE TABLE IF NOT EXISTS user ( "
+                    + " id INTEGER PRIMARY KEY AUTOINCREMENT "
+                    + ", username VARCHAR(128) UNIQUE"
+                    + ", voicename VARCHAR(128) DEFAULT 'en-US-Standard-B'"
+                    + ", voicespeed DOUBLE DEFAULT 1"
+                    + ", voicepitch DOUBLE DEFAULT 0"
+                    + ", voicevolume DOUBLE DEFAULT 1"
+                    + ", freevoice INTEGER DEFAULT 1"
+                    + ");"
+            );
 
-        executeUpdate("CREATE TABLE IF NOT EXISTS user_pref ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", user_id INTEGER"
-                + ", pref_id INTEGER"
-                + ", data VARCHAR(1024)"
-                + ");"
-        );
-        addPref("butt_stuff");
-        executeUpdate("CREATE TABLE IF NOT EXISTS auth ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", token VARCHAR(1024)"
-                + ");"
-        );
+            executeUpdate("CREATE TABLE IF NOT EXISTS pref ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", name VARCHAR(128) UNIQUE"
+                    + ");"
+            );
 
-        executeUpdate("CREATE TABLE IF NOT EXISTS reaction ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", type VARCHAR(128)"
-                + ", phrase VARCHAR(128) UNIQUE"
-                + ", result VARCHAR(1024)"
-                + ", extra VARCHAR(1024)"
-                + ");"
-        );
+            executeUpdate("CREATE TABLE IF NOT EXISTS user_pref ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", user_id INTEGER"
+                    + ", pref_id INTEGER"
+                    + ", data VARCHAR(1024)"
+                    + ");"
+            );
+            addPref("butt_stuff");
+            executeUpdate("CREATE TABLE IF NOT EXISTS auth ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", token VARCHAR(1024)"
+                    + ");"
+            );
 
-        executeUpdate("CREATE TABLE IF NOT EXISTS muted_username ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", username VARCHAR(128) UNIQUE"
-                + ", expiry INTEGER"
-                + ");"
-        );
+            executeUpdate("CREATE TABLE IF NOT EXISTS reaction ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", type VARCHAR(128)"
+                    + ", phrase VARCHAR(128) UNIQUE"
+                    + ", result VARCHAR(1024)"
+                    + ", extra VARCHAR(1024)"
+                    + ");"
+            );
 
-        executeUpdate("CREATE TABLE IF NOT EXISTS appconfig ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", param VARCHAR(128) UNIQUE"
-                + ", value VARCHAR(128)"
-                + ");"
-        );
+            executeUpdate("CREATE TABLE IF NOT EXISTS muted_username ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", username VARCHAR(128) UNIQUE"
+                    + ", expiry INTEGER"
+                    + ");"
+            );
 
-        executeUpdate("CREATE TABLE IF NOT EXISTS command_alias ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", command VARCHAR(128)"
-                + ", alias VARCHAR(128) UNIQUE"
-                + ");"
-        );
+            executeUpdate("CREATE TABLE IF NOT EXISTS appconfig ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", param VARCHAR(128) UNIQUE"
+                    + ", value VARCHAR(128)"
+                    + ");"
+            );
 
-        executeUpdate("CREATE TABLE IF NOT EXISTS sfx_alias ( "
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT"
-                + ", sfx VARCHAR(128)"
-                + ", alias VARCHAR(128) UNIQUE"
-                + ");"
-        );
+            executeUpdate("CREATE TABLE IF NOT EXISTS command_alias ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", command VARCHAR(128)"
+                    + ", alias VARCHAR(128) UNIQUE"
+                    + ");"
+            );
+
+            executeUpdate("CREATE TABLE IF NOT EXISTS sfx_alias ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", sfx VARCHAR(128)"
+                    + ", alias VARCHAR(128) UNIQUE"
+                    + ");"
+            );
+
+            executeUpdate("CREATE TABLE IF NOT EXISTS reaction_mod ( "
+                    + "reaction_id INTEGER"
+                    + ", mod VARCHAR(128)"
+                    + ", data VARCHAR(1024)"
+                    + ", UNIQUE(reaction_id, mod)"
+                    + " );"
+            );
+
+            // Don't @ me, tired of appconfig being the table that shows up first on stream when browsing the DB
+            executeUpdate("CREATE TABLE IF NOT EXISTS _ ( "
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + " );"
+            );
+
+            executeUpdate("ALTER TABLE reaction ADD COLUMN created_timestamp TEXT;");
+            executeUpdate("PRAGMA user_version=1");
+        } else if (dbVersion == 1) {
+            // Nothing, yet
+        }
     }
 
     private void loadReactions() {
@@ -897,15 +1136,29 @@ public class Janna extends JPanel {
             if (result.isClosed()) return;
 
             do {
+                int id = result.getInt("id");
                 String type = result.getString("type");
                 String key = result.getString("phrase");
                 String value = result.getString("result");
                 String extra = result.getString("extra");
 
+                HashMap<String, String> mods = new HashMap<>();
+                reactionMods.put(key, mods);
+                ResultSet mod_result = executeQuery("SELECT * FROM reaction_mod WHERE reaction_id=" + id); // TODO: Prep
+                if (!mod_result.isClosed()) {
+                    do {
+                        String mod = mod_result.getString("mod");
+                        String data = mod_result.getString("data");
+                        mods.put(mod, data);
+                    } while (mod_result.next());
+                    reactionMods.get(key).putAll(mods); // TODO: Actually test this for multi-type reactions
+                                                        // TODO: (Actually test multi-type reactions at all)
+                }
+
                 if (type.equalsIgnoreCase("filter")) {
                     filterList.put(key, value);
                 } else if (type.equalsIgnoreCase("sfx")) {
-                    sfxList.put(key, new Sfx(value, (null == extra ? "" : extra)));
+                    newSfx(key, new Sfx(value, reactionMods.get(key)));
                 } else if (type.equalsIgnoreCase("response")) {
                     responseList.put(key, value);
                 }
@@ -913,6 +1166,11 @@ public class Janna extends JPanel {
         } catch (Exception ex) {
             error("Failed to load reactions from DB", ex);
         }
+    }
+
+    public void newSfx(String key, Sfx sfx) {
+        sfxList.put(key, sfx);
+        sfxDirty = true;
     }
 
     private void loadAliases() {
@@ -938,11 +1196,16 @@ public class Janna extends JPanel {
                 String sfx = result.getString("sfx");
                 String alias = result.getString("alias");
 
-                sfxAliases.put(alias, sfx);
+                newSfxAlias(alias, sfx);
             } while (result.next());
         } catch (Exception ex) {
             error("Failed to load reactions from DB", ex);
         }
+    }
+
+    private void newSfxAlias(String alias, String sfx) {
+        sfxAliases.put(alias, sfx);
+        sfxList.get(sfx).aliases.add(alias);
     }
 
     private void loadMuteList() {
@@ -1731,7 +1994,7 @@ public class Janna extends JPanel {
                 half2 = message.substring(soundPos).replaceFirst("(?i)" + find, replace).trim();
         if (!half1.isEmpty()) messages.add(new TTSMessage("message", half1));
         if (!find.isEmpty()) {
-            messages.add(new TTSMessage("sfx", sfxList.get(find), find));
+            messages.add(new TTSMessage("sfx", getSfx(find), find));
         }
         if (!half2.isEmpty()) messages.add(new TTSMessage("message", half2));
 
@@ -1748,6 +2011,29 @@ public class Janna extends JPanel {
         }
 
         return messages.toArray(new TTSMessage[0]);
+    }
+
+    public Sfx getSfx(String phrase) {
+        Sfx sfx = sfxList.get(phrase);
+        if (sfx.url.equalsIgnoreCase("multi")) {
+            ArrayList<Sfx> multiSfxList = new ArrayList<>();
+            for (Sfx multiSfx : sfxList.values()) {
+                try {
+                    // This is hackasaurus rex. If the phrase appears in an SFX's mods with an int value, take that and
+                    //  use it as a weight for randomizing. If it's null, it'll barf an error, and frankly I don't care
+                    //  what that error is, just move on
+                    int weight = Integer.parseInt(multiSfx.mods.get(phrase));
+                    for (int i = 0; i < weight; i++) {
+                        multiSfxList.add(multiSfx);
+                    }
+                } catch (Exception ex) {
+                    // Ignore stuff that doesn't use number, because I guess that's a weight or something
+                }
+            }
+            sfx = multiSfxList.get((int)(Math.random()*multiSfxList.size()));
+        }
+
+        return sfx;
     }
 
     // Mess with the text to do stuff like read emotes faster, or play sound effects
@@ -1922,6 +2208,11 @@ public class Janna extends JPanel {
                 addReaction("sfx", message, channel);
             }
             break;
+            case "janna.replacesfx": {
+                if (!isMod(user.name)) return;
+                editReaction("sfx", message, channel);
+            }
+            break;
             case "janna.addfilter": {
                 if (!isMod(user.name)) return;
                 addReaction("filter", message, channel);
@@ -2003,6 +2294,10 @@ public class Janna extends JPanel {
             }
             break;
             case "sfx": {
+                if ("1".equals(appConfig.get("sfx_page_enabled")) && split.length == 1) {
+                    sendMessage(channel, "All SFX: " + appConfig.get("sfx_page_url"));
+                    break;
+                }
                 String sfxString = "";
                 ArrayList<String> sfxResults = new ArrayList<>();
                 if (split.length > 1) {
@@ -2018,12 +2313,18 @@ public class Janna extends JPanel {
                     }
                 }
 
+                String sfxMessage = "All SFX";
+                if (split.length > 1) {
+                    sfxMessage+= " containing '" + split[1] + "'";
+                }
+                sfxMessage+= ": ";
+
                 int limit = 480; // He's not even at 480 yet!
                 for (String sfx : sfxResults) {
                     sfxString += (sfxString.isEmpty() ? "" : ", ") + sfx;
                 }
                 if (sfxString.length() < limit) {
-                    sendMessage(channel, "All SFX: " + sfxString);
+                    sendMessage(channel, sfxMessage + sfxString);
                 } else {
                     ArrayList<String> sfxStrings = new ArrayList<>();
                     while (!sfxString.isEmpty()) {
@@ -2047,7 +2348,7 @@ public class Janna extends JPanel {
                         }
                     }
                     for (int i = 0; i < sfxStrings.size(); i++) {
-                        messageQueue.queueMessage(channel, "All SFX ["+(i+1)+"/"+sfxStrings.size()+"]: " + sfxStrings.get(i));
+                        messageQueue.queueMessage(channel, sfxMessage + "["+(i+1)+"/"+sfxStrings.size()+"]: " + sfxStrings.get(i));
                     }
                 }
             }
@@ -2139,6 +2440,8 @@ public class Janna extends JPanel {
             prep.setString(2, alias);
             if (prep.executeUpdate() > 0) {
                 sfxAliases.put(alias, sfx);
+                sfxList.get(sfx).aliases.add(alias);
+                sfxDirty = true;
                 sendMessage(channel, "Added sfx alias; You can now use the sfx `"+sfx +"` by typing `"+ alias + "`");
             } else {
                 sendMessage(channel, "Can't tell ya why, but that addSfxAlias command didn't work");
@@ -2160,10 +2463,13 @@ public class Janna extends JPanel {
         try {
             String[] split = message.split(" ");
             String alias = split[1].toLowerCase();
+            String sfx = sfxAliases.get(alias);
             PreparedStatement prep = sqlCon.prepareStatement("DELETE FROM sfx_alias WHERE alias=?;");
             prep.setString(1, alias);
             if (prep.executeUpdate() > 0) {
                 sfxAliases.remove(alias);
+                sfxList.get(sfx).aliases.remove(alias);
+                sfxDirty = true;
                 sendMessage(channel, "Removed sfx alias: " + alias);
             }
         }
@@ -2197,16 +2503,27 @@ public class Janna extends JPanel {
             prep.setString(1, type);
             prep.setString(2, phrase);
             ResultSet result = prep.executeQuery();
+            String mods = "mods=[";
+            prep = sqlCon.prepareStatement("SELECT * FROM reaction_mod WHERE reaction_id = "
+                    + " (SELECT id FROM reaction WHERE phrase=?);");
+            prep.setString(1, phrase);
+            ResultSet modResult = prep.executeQuery();
+            if (!modResult.isClosed()) {
+                while (modResult.next()) {
+                    mods+=modResult.getString("mod") + "=" + modResult.getString("data") + "; ";
+                }
+            }
+            mods += "]";
 
             switch (type) {
                 case "sfx":
-                    sendMessage(channel, "[" + phrase + "] url=" + result.getString("result") + ", extra=" + result.getString("extra"));
+                    sendMessage(channel, "[" + phrase + "] url=" + result.getString("result") + ", " + mods);
                     break;
                 case "filter":
-                    sendMessage(channel, "[" + phrase + "] replacement=" + result.getString("result") + ", extra=" + result.getString("extra"));
+                    sendMessage(channel, "[" + phrase + "] replacement=" + result.getString("result") + ", " + mods);
                     break;
                 case "response":
-                    sendMessage(channel, "[" + phrase + "] response=" + result.getString("result") + ", extra=" + result.getString("extra"));
+                    sendMessage(channel, "[" + phrase + "] response=" + result.getString("result") + ", " + mods);
                     break;
                 default:
             }
@@ -2310,14 +2627,14 @@ public class Janna extends JPanel {
         try {
             phrase = split[1].toLowerCase();
             result = split[2];
-            PreparedStatement prep = sqlCon.prepareStatement("INSERT INTO reaction (type, phrase, result) VALUES (?, ?, ?);");
+            PreparedStatement prep = sqlCon.prepareStatement("INSERT INTO reaction (type, phrase, result, created_timestamp) VALUES (?, ?, ?, CURRENT_TIMESTAMP);");
             prep.setString(1, type);
             prep.setString(2, phrase);
             prep.setString(3, result);
             prep.executeUpdate();
             switch (type) {
                 case "sfx":
-                    sfxList.put(phrase, new Sfx(result, ""));
+                    newSfx(phrase, new Sfx(result, null));
                     sendMessage(channel, "Added SFX for phrase: " + phrase);
                     break;
                 case "filter":
@@ -2349,6 +2666,58 @@ public class Janna extends JPanel {
                     sendMessage(channel, "Malformatted command; Usage: `!janna.addResponse <phrase> <response>`");
                     break;
             }
+        }
+    }
+
+    public void editReaction(String type, String message, String channel) {
+        String[] split = message.split(" ", 3);
+        String phrase = "", result = "";
+        try {
+            phrase = split[1].toLowerCase();
+            result = split[2];
+            PreparedStatement prep = sqlCon.prepareStatement("UPDATE reaction SET result = ? WHERE type = ? AND phrase = ?;");
+            prep.setString(1, result);
+            prep.setString(2, type);
+            prep.setString(3, phrase);
+            prep.executeUpdate();
+            switch (type) {
+                case "sfx":
+                    cleanupQueue.queue.add(Sfx.getFileLocation(sfxList.get(phrase)));
+                    newSfx(phrase, new Sfx(result, reactionMods.get(phrase)));
+                    // TODO: Clear SFX cache method - Maybe works now?
+                    sendMessage(channel, "Edited SFX for phrase: " + phrase);
+                    break;
+                case "filter":
+                    /*filterList.put(phrase, result);
+                    sendMessage(channel, "Edited filter for phrase: " + phrase);*/
+                    break;
+                case "response":
+                    /*responseList.put(phrase, result);
+                    sendMessage(channel, "Edited response to phrase: " + phrase);*/
+                    break;
+            }
+        } catch (SQLException ex) {
+            sendMessage (channel, "SQLException; TODO: Real error message");
+            /*if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
+                sendMessage(channel, "A reaction for: `" + split[1] + "` already exists");
+            } else {
+                error("Failed to insert " + type + ": " + message.split(" ")[1], ex);
+                sendMessage(channel, "Failed to add " + type + ": " + ex);
+            }*/
+        } catch (IndexOutOfBoundsException ex) {
+            sendMessage (channel, "IndexOutOfBounds; TODO: Real error message");
+            /*warn("add " + type + " command malformatted");
+            switch (type) {
+                case "sfx":
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.addSfx <phrase> <https://__________>` (wav, mp3, ogg)");
+                    break;
+                case "filter":
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.addFilter <phrase> <filtered phrase>`");
+                    break;
+                case "response":
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.addResponse <phrase> <response>`");
+                    break;
+            }*/
         }
     }
 
@@ -2403,22 +2772,85 @@ public class Janna extends JPanel {
         try {
             phrase = split[1].toLowerCase();
             String extra = (split.length > 2 ? split[2] : "");
-            PreparedStatement prep = sqlCon.prepareStatement("UPDATE reaction SET extra=? WHERE type=? AND phrase=?;");
-            prep.setString(1, extra);
-            prep.setString(2, type);
-            prep.setString(3, phrase);
+            String output = "", cleanupUrl = "";
+            String[] newMod = extra.split("=", 2);
+            HashMap<String, String> mods = new HashMap<>();
+            switch (type) {
+                case "sfx":
+                    Sfx currentSfx = sfxList.get(phrase);
+                    String url = currentSfx.url;
+                    cleanupUrl = url;
+                    mods = currentSfx.mods;
+                    mods.put(newMod[0], newMod[1]);
+
+                    // Override newMod stuff if needed
+                    if (newMod[0].toLowerCase().startsWith("volume")) {
+                        try {
+                            // This could honestly be outside of the switch
+                            if (newMod.length == 1 && newMod[0].equalsIgnoreCase("volume")) {
+                                mods.remove("volume");
+                                reactionMods.put(phrase, mods);
+                                newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase)));
+                                // Delete cached thing, since mods are applied on initial convert
+                                cleanupQueue.queue.add(Sfx.getFileLocation(cleanupUrl));
+
+                                PreparedStatement prep = sqlCon.prepareStatement(
+                                        "DELETE FROM reaction_mod WHERE reaction_id = (SELECT id FROM reaction WHERE phrase = ?) AND mod = ?;");
+                                prep.setString(1, phrase);
+                                prep.setString(2, newMod[0]);
+                                if (prep.executeUpdate() > 0) {
+                                    sendMessage(channel, "Removed " + newMod[0] + " mod for " + type + ": " + phrase);
+                                }
+                                return;
+                            }
+
+                            int currentVolume = 0;
+                            if (null != mods.get("volume")) {
+                                currentVolume = Integer.parseInt(mods.get("volume"));
+                            }
+                            int volume = Integer.parseInt(newMod[1]);
+
+                            if (newMod[0].equalsIgnoreCase("volume")) {
+                                mods.put("volume", "" + volume);
+                            } else if (newMod[0].endsWith("-")) {
+                                mods.put("volume", "" + (currentVolume - volume));
+                                newMod[0] = "volume";
+                            } else if (newMod[0].endsWith("+")) {
+                                mods.put("volume", "" + (currentVolume + volume));
+                                newMod[0] = "volume";
+                            }
+                        } catch (Exception ex) {
+                            error("Failed to mod sfx volume", ex);
+                        }
+                    }
+                    reactionMods.put(phrase, mods);
+                    sfxDirty = true;
+                    output = "Modified " + type + " for phrase: " + phrase;
+                    break;
+                case "filter":
+                    break;
+                case "response":
+                    break;
+            }
+
+
+            PreparedStatement prep = sqlCon.prepareStatement(
+                    "REPLACE INTO reaction_mod (reaction_id, mod, data) "
+                    + "VALUES ((SELECT id FROM reaction WHERE phrase = ?), ?, ?);");
+            prep.setString(1, phrase);
+            prep.setString(2, newMod[0]);
+            prep.setString(3, mods.get(newMod[0]));
             if (prep.executeUpdate() > 0) {
                 switch (type) {
                     case "sfx":
-                        String url = sfxList.get(phrase).url;
-                        sfxList.put(phrase, new Sfx(url, extra));
-                        sendMessage(channel, "Modified SFX for phrase: " + phrase);
+                        newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase)));
                         // Delete cached thing, since mods are applied on initial convert
-                        cleanupQueue.queue.add(Sfx.getFileLocation(url));
+                        cleanupQueue.queue.add(Sfx.getFileLocation(cleanupUrl));
+                        sendMessage(channel, output);
                         break;
                     case "filter":
                         break;
-                    case "response":
+                    case "reponse":
                         break;
                 }
             } else {
@@ -2431,7 +2863,7 @@ public class Janna extends JPanel {
             warn("modify " + type + " command malformatted");
             switch (type) {
                 case "sfx":
-                    sendMessage(channel, "Malformatted command; Usage: `!janna.modSfx <phrase> [param1=value1,param2=value2]");
+                    sendMessage(channel, "Malformatted command; Usage: `!janna.modSfx <phrase> [param=value]");
                     break;
                 case "filter":
                     break;

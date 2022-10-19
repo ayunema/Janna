@@ -6,7 +6,7 @@
 
     <groupId>com.project610</groupId>
     <artifactId>Janna</artifactId>
-    <version>0.6.2.2</version>
+    <version>0.6.3</version>
 
     <build>
         <resources>
@@ -90,6 +90,13 @@
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpclient</artifactId>
             <version>4.5.13</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/commons-net/commons-net -->
+        <dependency>
+            <groupId>commons-net</groupId>
+            <artifactId>commons-net</artifactId>
+            <version>3.6</version>
         </dependency>
 
         <dependency>
