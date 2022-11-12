@@ -755,39 +755,45 @@ public class Janna extends JPanel {
                 .append("a { color: #ddd; }")
                 .append("a:visited { color: #ccc; }")
                 .append(".row { margin-bottom: 5px; }")
-                .append(".cell { padding: 3px 10px; float: left; overflow-wrap: break-word; }")
+                .append(".cell { padding: 3px 10px; overflow-wrap: break-word; }")
                 .append(".cellheader { font-weight: bold; background: #66d; color: #fff; }")
                 .append(".copy { border:none; background: none; cursor: pointer; }")
                 .append(".alias { border: 1px dashed #888; border-radius: 4px; margin: 0px 3px; padding: 1px 2px; }")
                 .append("</style>")
+                .append("<script src='https://www.project610.com/janna/libs/sorttable.js'></script>")
                 .append("</head>");
 
         sb.append("<body>");
 
-        sb.append("<div class='cell cellheader' style='width: 40px;'>&nbsp;</div>");
-        sb.append("<div class='cell cellheader' style='width: 150px;'>Phrase</div>");
-        sb.append("<div class='cell cellheader' style='width: 200px;'>Mods</div>");
-        sb.append("<div class='cell cellheader' style='width: 150px;'>Aliases</div>");
-        sb.append("<div class='cell cellheader' style='width: 200px;'>Created</div>");
-        sb.append("<div style='clear: both;'></div>");
+        sb.append("<table class='sortable'>")
+                .append("<thead>")
+                .append("<tr>")
+                .append("<th>&nbsp;</th>")
+                .append("<th>Phrase</th>")
+                .append("<th>Mods</th>")
+                .append("<th>Aliases</th>")
+                .append("<th>Created</th>")
+                .append("</tr>")
+                .append("</thead>");
 
+        sb.append("<tbody>");
         int rows = 0;
         for (String key : sfxList.keySet()) {
             Sfx sfx = sfxList.get(key);
             String background = rows%2==0?"background:#003":"background:#001";
 
             // Row
-            sb.append("<div class='row' style='")
+            sb.append("<tr class='row' style='")
                     .append(background)
                     .append("'>");
 
-            sb.append("<div class='cell' style='width: 40px;'>")
+            sb.append("<td class='cell' style='width: 40px;'>")
                     .append("<input type='button' class='copy' value='📋' onclick='navigator.clipboard.writeText(\"")
                     .append(key)
                     .append("\");'/>")
-                    .append("</div>");
+                    .append("</td>");
 
-            sb.append("<div class='cell' style='width: 150px;'>");
+            sb.append("<td class='cell' style='width: 150px;'>");
 
             String url = sfx.url;
             if (!url.equalsIgnoreCase("multi")) {
@@ -799,9 +805,9 @@ public class Janna extends JPanel {
             if (!url.equalsIgnoreCase("multi")) {
                 sb.append("</a>");
             }
-            sb.append("</div>");
+            sb.append("</td>");
 
-            sb.append("<div class='cell' style='width: 200px;'>");
+            sb.append("<td class='cell' style='width: 200px;'>");
             HashMap<String,String> mods = sfx.mods;
             for (String mod : mods.keySet()) {
                 sb.append(mod)
@@ -809,27 +815,25 @@ public class Janna extends JPanel {
                         .append(mods.get(mod))
                         .append("<br/>");
             }
-            sb.append("</div>");
+            sb.append("</td>");
 
-            sb.append("<div class='cell' style='width: 150px;'>");
+            sb.append("<td class='cell' style='width: 150px;'>");
             for (String alias : sfx.aliases) {
                 sb.append("<span class='alias'>")
                         .append(alias)
                         .append("</span>");
             }
-            sb.append("</div>");
+            sb.append("</td>");
 
-            sb.append("<div class='cell' style='width: 200px;'>")
-                .append(sfx.created)
-                .append("</div>");
-
-            sb.append("<div style='clear: both;'></div>");
+            sb.append("<td class='cell' style='width: 200px;'>")
+                    .append(sfx.created)
+                    .append("</td>");
 
             // End row
-            sb.append("</div>");
+            sb.append("</tr>");
             rows++;
         }
-        sb.append("</body></html>");
+        sb.append("</tbody></table></body></html>");
         Files.write(p, sb.toString().getBytes());
 
         File f = new File("temp/sfxlist.html");
@@ -2182,7 +2186,11 @@ public class Janna extends JPanel {
             break;
             case "stfu": {
                 if (!isVIP(user.name)) return;
-                silenceAllVoices();
+                if (split.length > 1) {
+                    silenceAllVoices(split[1]);
+                } else {
+                    silenceAllVoices();
+                }
             }
             break;
             case "mute": {
@@ -2372,10 +2380,21 @@ public class Janna extends JPanel {
                 String sfxMessage = "Some new SFX (!sfx for full list)";
                 sfxMessage+= ": ";
 
-                int limit = 460; // Truncate if too long
+                int count = 10;
+                if (split.length > 1) {
+                    try {
+                        count = Integer.parseInt(split[1]);
+                        if (count > 25) count = 25;
+                        else if (count < 1) count = 1;
+                    } catch (NumberFormatException ex) {
+                        // Meh
+                    }
+                }
+
+                int limit = 420; // Truncate if too long
 
                 try {
-                    ResultSet results = executeQuery("SELECT * FROM reaction WHERE type = 'sfx' ORDER BY created_timestamp DESC LIMIT 10;");
+                    ResultSet results = executeQuery("SELECT * FROM reaction WHERE type = 'sfx' ORDER BY created_timestamp DESC LIMIT " + count + ";");
                     while (results.next()) {
                         sfxString += (sfxString.isEmpty() ? "" : ", ") + results.getString("phrase");
                     }
@@ -2665,6 +2684,19 @@ public class Janna extends JPanel {
             for (int i = speechQueue.currentlyPlaying.size() - 1; i >= 0; i--) {
                 speechQueue.currentlyPlaying.get(i).clip.stop();
                 speechQueue.currentlyPlaying.get(i).busy = false;
+            }
+        } catch (Exception ex) {
+
+        }
+    }
+
+    public void silenceAllVoices(String username) {
+        try {
+            for (int i = speechQueue.currentlyPlaying.size() - 1; i >= 0; i--) {
+                if (speechQueue.currentlyPlaying.get(i).username.equalsIgnoreCase(username)) {
+                    speechQueue.currentlyPlaying.get(i).clip.stop();
+                    speechQueue.currentlyPlaying.get(i).busy = false;
+                }
             }
         } catch (Exception ex) {
 
