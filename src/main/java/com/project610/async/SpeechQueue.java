@@ -1,7 +1,6 @@
 package com.project610.async;
 
 import com.project610.PlaySound;
-import org.checkerframework.checker.units.qual.A;
 
 import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
@@ -62,10 +61,8 @@ public class SpeechQueue implements Runnable {
 
             // Otherwise allowConsecutive is true, and this isn't the first thing in the queue, so check to
             //   make sure it's not playing something by the same user
-            for (PlaySound current : currentlyPlaying) {
-                if (current.username.equalsIgnoreCase(sound.username) && !current.equals(sound)) {
-                    return true;
-                }
+            if (getCurrentSpeakers(sound).contains(sound.username)) {
+                return true;
             }
             return false;
         } catch (ConcurrentModificationException ex) {
@@ -74,6 +71,16 @@ public class SpeechQueue implements Runnable {
             // SpeechQueue likely purged
             return true;
         }
+    }
+
+    public ArrayList<String> getCurrentSpeakers(PlaySound exception) {
+        ArrayList<String> speakers = new ArrayList<>();
+        for (PlaySound current : currentlyPlaying) {
+            if (!current.equals(exception)) {
+                speakers.add(current.username);
+            }
+        }
+        return speakers;
     }
 
     // This is probably unnecessary now, as `isBusy` is handling

@@ -1021,7 +1021,7 @@ public class Janna extends JPanel {
         } else if (ttsMode.equalsIgnoreCase("se")) {
             new SeVoice(null, new TTSMessage("message", "Is StreamElements text to speech"), new TTSMessage("message", "working and stuff?"));
         }
-        info("Beware I live");
+        info(Util.currentTime() + " - Beware I live");
     }
 
     private void initDB() throws Exception {
@@ -1141,6 +1141,7 @@ public class Janna extends JPanel {
                 String key = result.getString("phrase");
                 String value = result.getString("result");
                 String extra = result.getString("extra");
+                String created = result.getString("created_timestamp");
 
                 HashMap<String, String> mods = new HashMap<>();
                 reactionMods.put(key, mods);
@@ -1158,7 +1159,7 @@ public class Janna extends JPanel {
                 if (type.equalsIgnoreCase("filter")) {
                     filterList.put(key, value);
                 } else if (type.equalsIgnoreCase("sfx")) {
-                    newSfx(key, new Sfx(value, reactionMods.get(key)));
+                    newSfx(key, new Sfx(value, reactionMods.get(key), created));
                 } else if (type.equalsIgnoreCase("response")) {
                     responseList.put(key, value);
                 }
@@ -1204,8 +1205,12 @@ public class Janna extends JPanel {
     }
 
     private void newSfxAlias(String alias, String sfx) {
-        sfxAliases.put(alias, sfx);
-        sfxList.get(sfx).aliases.add(alias);
+        try {
+            sfxAliases.put(alias, sfx);
+            sfxList.get(sfx).aliases.add(alias);
+        } catch (NullPointerException ex) {
+            warn("NPE while adding SFX Alias, probably an orphaned record. SFX: " + sfx + ", Alias: " + alias);
+        }
     }
 
     private void loadMuteList() {
@@ -1646,7 +1651,7 @@ public class Janna extends JPanel {
         // This is super immature. 3% of messages will end with "But enough about my butt", because it's funny.
         // Chatters can opt out of this with the command !dontbuttmebro
         // TODO: Make configurable for people who aren't as childish as me
-        if (Math.random() > 0.97 && !"0".equals(user.prefs.get("butt_stuff"))) {
+        if (Math.random() > 0.97 && !"0".equals(user.prefs.get("butt_stuff")) && !sfxList.keySet().contains(instance.getActualSfx(s.trim().toLowerCase()))) {
             result += " But enough about my butt.";
         }
         return result;
@@ -1990,8 +1995,9 @@ public class Janna extends JPanel {
             }
         }
 
+        // TODO: Fix more than just `?` on the end of an sfx phrase
         String half1 = message.substring(0, soundPos).trim(),
-                half2 = message.substring(soundPos).replaceFirst("(?i)" + find, replace).trim();
+                half2 = message.substring(soundPos).replaceFirst("(?i)" + find.replace("?", "\\?"), replace).trim();
         if (!half1.isEmpty()) messages.add(new TTSMessage("message", half1));
         if (!find.isEmpty()) {
             messages.add(new TTSMessage("sfx", getSfx(find), find));
@@ -2166,8 +2172,12 @@ public class Janna extends JPanel {
 
         switch (actualCommand) {
             case "no": {
-                if (!isVIP(user.name)) return;
-                silenceCurrentVoices();
+                if (!isVIP(user.name)) {
+                    if (!speechQueue.getCurrentSpeakers(null).contains(user.name)) return;
+                    silenceCurrentVoices(user.name);
+                } else {
+                    silenceCurrentVoices();
+                }
             }
             break;
             case "stfu": {
@@ -2315,11 +2325,15 @@ public class Janna extends JPanel {
 
                 String sfxMessage = "All SFX";
                 if (split.length > 1) {
+                    if (split[1].length() < 3) {
+                        sendMessage(channel, "Refine that SFX search a little, why don't you? (3 chars minimum)");
+                        break;
+                    }
                     sfxMessage+= " containing '" + split[1] + "'";
                 }
                 sfxMessage+= ": ";
 
-                int limit = 480; // He's not even at 480 yet!
+                int limit = 400;
                 for (String sfx : sfxResults) {
                     sfxString += (sfxString.isEmpty() ? "" : ", ") + sfx;
                 }
@@ -2351,6 +2365,28 @@ public class Janna extends JPanel {
                         messageQueue.queueMessage(channel, sfxMessage + "["+(i+1)+"/"+sfxStrings.size()+"]: " + sfxStrings.get(i));
                     }
                 }
+            }
+            break;
+            case "newsfx": {
+                String sfxString = "";
+                String sfxMessage = "Some new SFX (!sfx for full list)";
+                sfxMessage+= ": ";
+
+                int limit = 460; // Truncate if too long
+
+                try {
+                    ResultSet results = executeQuery("SELECT * FROM reaction WHERE type = 'sfx' ORDER BY created_timestamp DESC LIMIT 10;");
+                    while (results.next()) {
+                        sfxString += (sfxString.isEmpty() ? "" : ", ") + results.getString("phrase");
+                    }
+                } catch (SQLException ex) {
+                    // This shouldn't happen
+                    error("Error getting new SFX", ex);
+                }
+                if (sfxString.length() > limit) {
+                    sfxString = sfxString.substring(0, limit) + "...";
+                }
+                sendMessage(channel, sfxMessage + sfxString);
             }
             break;
             case "janna.voiceusers": {
@@ -2610,6 +2646,20 @@ public class Janna extends JPanel {
         }
     }
 
+    public void silenceCurrentVoices(String username) {
+        for (int i = speechQueue.currentlyPlaying.size() - 1; i >= 0; i--) {
+            try {
+                PlaySound current = speechQueue.currentlyPlaying.get(i);
+                if (current.started && current.username.equalsIgnoreCase(username)) {
+                    current.clip.stop();
+                    current.busy = false;
+                }
+            } catch (Exception ex) {
+
+            }
+        }
+    }
+
     public void silenceAllVoices() {
         try {
             for (int i = speechQueue.currentlyPlaying.size() - 1; i >= 0; i--) {
@@ -2627,14 +2677,15 @@ public class Janna extends JPanel {
         try {
             phrase = split[1].toLowerCase();
             result = split[2];
-            PreparedStatement prep = sqlCon.prepareStatement("INSERT INTO reaction (type, phrase, result, created_timestamp) VALUES (?, ?, ?, CURRENT_TIMESTAMP);");
+            PreparedStatement prep = sqlCon.prepareStatement("INSERT INTO reaction (type, phrase, result, created_timestamp) VALUES (?, ?, ?, ?);");
             prep.setString(1, type);
             prep.setString(2, phrase);
             prep.setString(3, result);
+            prep.setString(4, Util.currentTime());
             prep.executeUpdate();
             switch (type) {
                 case "sfx":
-                    newSfx(phrase, new Sfx(result, null));
+                    newSfx(phrase, new Sfx(result, null, Util.currentTime()));
                     sendMessage(channel, "Added SFX for phrase: " + phrase);
                     break;
                 case "filter":
@@ -2683,7 +2734,7 @@ public class Janna extends JPanel {
             switch (type) {
                 case "sfx":
                     cleanupQueue.queue.add(Sfx.getFileLocation(sfxList.get(phrase)));
-                    newSfx(phrase, new Sfx(result, reactionMods.get(phrase)));
+                    newSfx(phrase, new Sfx(result, reactionMods.get(phrase), sfxList.get(phrase).created));
                     // TODO: Clear SFX cache method - Maybe works now?
                     sendMessage(channel, "Edited SFX for phrase: " + phrase);
                     break;
@@ -2790,7 +2841,7 @@ public class Janna extends JPanel {
                             if (newMod.length == 1 && newMod[0].equalsIgnoreCase("volume")) {
                                 mods.remove("volume");
                                 reactionMods.put(phrase, mods);
-                                newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase)));
+                                newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase), sfxList.get(phrase).created));
                                 // Delete cached thing, since mods are applied on initial convert
                                 cleanupQueue.queue.add(Sfx.getFileLocation(cleanupUrl));
 
@@ -2843,7 +2894,7 @@ public class Janna extends JPanel {
             if (prep.executeUpdate() > 0) {
                 switch (type) {
                     case "sfx":
-                        newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase)));
+                        newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase), sfxList.get(phrase).created));
                         // Delete cached thing, since mods are applied on initial convert
                         cleanupQueue.queue.add(Sfx.getFileLocation(cleanupUrl));
                         sendMessage(channel, output);

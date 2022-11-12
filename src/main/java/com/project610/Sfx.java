@@ -22,8 +22,9 @@ public class Sfx {
         this.extra = temp;
     }*/
 
-    public Sfx(String url, HashMap<String, String> mods) {
+    public Sfx(String url, HashMap<String, String> mods, String created) {
         this.url = url;
+        this.created = created;
         this.mods = mods;
         if (null == mods) {
             mods = new HashMap<>();

@@ -1,5 +1,10 @@
 package com.project610.utils;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.util.Date;
+
 public class Util {
     public enum OS {
         WINDOWS, LINUX, MAC
@@ -20,5 +25,10 @@ public class Util {
             }
         }
         return os;
+    }
+
+    public static String currentTime() {
+        //DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        return Instant.now().toString();
     }
 }
