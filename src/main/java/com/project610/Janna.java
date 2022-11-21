@@ -760,6 +760,7 @@ public class Janna extends JPanel {
                 .append(".cellheader { font-weight: bold; background: #66d; color: #fff; }")
                 .append(".copy { border:none; background: none; cursor: pointer; }")
                 .append(".alias { border: 1px dashed #888; border-radius: 4px; margin: 0px 3px; padding: 1px 2px; }")
+                .append(".tiny { margin-left: 25px; font-size: 0.7em; color: #999; }")
                 .append("</style>")
                 .append("<script src='https://www.project610.com/janna/libs/sorttable.js'></script>")
                 .append("</head>");
@@ -831,8 +832,10 @@ public class Janna extends JPanel {
                     .append(sfx.uses)
                     .append("</td>");
 
+            String sfxCreated1 = sfx.created.substring(0, sfx.created.indexOf("T")),
+                    sfxCreated2 = "<span class='tiny'>"+sfx.created.substring(sfx.created.indexOf("T")+1)+"</span>";
             sb.append("<td class='cell' style='width: 200px;'>")
-                    .append(sfx.created)
+                    .append(sfxCreated1 + " " + sfxCreated2)
                     .append("</td>");
 
             // End row
