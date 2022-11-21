@@ -15,17 +15,19 @@ public class BingoToggle extends Command {
         String name = split[1];
 
         try {
-            PreparedStatement prep = instance.sqlCon.prepareStatement("SELECT name, state FROM bingo_square WHERE name like ?");
+            PreparedStatement prep = instance.sqlCon.prepareStatement("SELECT id, name, state FROM bingo_square WHERE name like ?");
             prep.setString(1, name);
             ResultSet result = prep.executeQuery();
             name = result.getString("name");
             int state = result.getInt("state");
+            int id = result.getInt("id");
 
-
+            state = (state+1)%2;
             prep = instance.sqlCon.prepareStatement("UPDATE bingo_square SET state = ? WHERE name LIKE ?;");
-            prep.setInt(1, (++state)%2);
+            prep.setInt(1, state);
             prep.setString(2, name);
             if (prep.executeUpdate() > 0) {
+                Janna.bingoSquares.get(id).state = state;
                 Janna.sendMessage(channel, "Toggled square: " + name + "=" + (state == 1 ? "Yes" : "No"));
             }
         }

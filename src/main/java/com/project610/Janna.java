@@ -93,7 +93,8 @@ public class Janna extends JPanel {
     public static HashMap<String, String> responseList = new HashMap<>();
     public static HashMap<String, HashMap<String,String>> reactionMods = new HashMap<>();
     public static HashSet<String> usedSfx = new HashSet<>();
-    public static TreeMap<String, BingoSquare> bingoSquares = new TreeMap<String, BingoSquare>();
+    public static TreeMap<Integer, BingoSquare> bingoSquares = new TreeMap<>();
+    public static HashMap<Integer, BingoSheet> bingoSheets = new HashMap<>();
 
     //    static String ttsMode = "google"; // Pitch applies during synthesis, sounds better
     static String ttsMode = "se"; // Way more voices, speed/pitch modify SFX, but *may suddenly crash and burn*
@@ -1209,15 +1210,23 @@ public class Janna extends JPanel {
         sfxDirty = true;
     }
 
-    private void loadBingoStuff() {
+    public void loadBingoStuff() {
         try {
             ResultSet squareResult = executeQuery("SELECT * FROM bingo_square");
-            String squareName = squareResult.getString("name"),
-                    squareDescription = squareResult.getString("description");
-            int squareDifficulty = squareResult.getInt("difficulty");
 
+            while (squareResult.next()) {
+                String squareName = squareResult.getString("name"),
+                        squareDescription = squareResult.getString("description");
+                int squareId = squareResult.getInt("id"),
+                        squareDifficulty = squareResult.getInt("difficulty"),
+                        squareState = squareResult.getInt("state");
+                bingoSquares.put(squareId, new BingoSquare(squareId, squareName, squareDescription, squareDifficulty, squareState));
+            }
 
             ResultSet sheetResult = executeQuery("SELECT * FROM bingo_sheet");
+            while (sheetResult.next()) {
+                bingoSheets.put(sheetResult.getInt("user_id"), new BingoSheet(sheetResult.getString("square_ids")));
+            }
         } catch (Exception ex) {
             error("Failed to load bingo stuff", ex);
         }
@@ -2231,6 +2240,8 @@ public class Janna extends JPanel {
         commandMap.put("newsfx", new ListNewSfx());
 
         commandMap.put("newbingo", new NewBingo());
+        commandMap.put("joinbingo", new JoinBingo());
+        commandMap.put("bingocheck", new BingoCheck());
         commandMap.put("addbingosquare", new AddBingoSquare());
         commandMap.put("getbingosquare", new GetBingoSquare());
         commandMap.put("bingotoggle", new BingoToggle());

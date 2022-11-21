@@ -40,6 +40,8 @@ public class AddBingoSquare extends Command {
             return 1;
         }
 
+        // Inefficient, but that's fine for now
+        instance.loadBingoStuff();
         return 0;
     }
 
