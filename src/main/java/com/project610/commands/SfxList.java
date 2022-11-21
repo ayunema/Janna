@@ -1,5 +1,7 @@
 package com.project610.commands;
 
+import com.project610.Janna;
+
 import java.util.ArrayList;
 
 public class SfxList extends Command {
@@ -29,46 +31,47 @@ public class SfxList extends Command {
 
         String sfxMessage = "All SFX";
         if (split.length > 1) {
-            if (split[1].length() < 3) {
-                instance.sendMessage(channel, "Refine that SFX search a little, why don't you? (3 chars minimum)");
+            if (split[1].length() < 2) {
+                Janna.sendMessage(channel, "Refine that SFX search a little, why don't you? (2 chars minimum)");
                 return 1;
             }
             sfxMessage+= " containing '" + split[1] + "'";
         }
         sfxMessage+= ": ";
 
-        int limit = 400;
         for (String sfx : sfxResults) {
             sfxString += (sfxString.isEmpty() ? "" : ", ") + sfx;
         }
-        if (sfxString.length() < limit) {
-            instance.sendMessage(channel, sfxMessage + sfxString);
-        } else {
-            ArrayList<String> sfxStrings = new ArrayList<>();
-            while (!sfxString.isEmpty()) {
-                // String short enough yet?
-                if (sfxString.length() < limit) {
-                    sfxStrings.add(sfxString);
-                    sfxString = "";
-                }
-                // String still too long
-                else {
-                    String temp = sfxString.substring(0, limit);
-                    int tempIndex = temp.lastIndexOf(",");
-                    if (tempIndex == -1) {
-                        // Bruh did you make a sfx with like 500char long name? Get outta here
-                        instance.warn("C'mon, yo");
-                        sfxString = "";
-                    } else {
-                        sfxStrings.add(sfxString.substring(0, tempIndex));
-                        sfxString = sfxString.substring(tempIndex + 1).trim();
-                    }
-                }
-            }
-            for (int i = 0; i < sfxStrings.size(); i++) {
-                instance.messageQueue.queueMessage(channel, sfxMessage + "["+(i+1)+"/"+sfxStrings.size()+"]: " + sfxStrings.get(i));
-            }
-        }
+        Janna.messageQueue.queueLongMessage(channel, sfxMessage, sfxString);
+//        int limit = 400;
+//        if (sfxString.length() < limit) {
+//            Janna.sendMessage(channel, sfxMessage + sfxString);
+//        } else {
+//            ArrayList<String> sfxStrings = new ArrayList<>();
+//            while (!sfxString.isEmpty()) {
+//                // String short enough yet?
+//                if (sfxString.length() < limit) {
+//                    sfxStrings.add(sfxString);
+//                    sfxString = "";
+//                }
+//                // String still too long
+//                else {
+//                    String temp = sfxString.substring(0, limit);
+//                    int tempIndex = temp.lastIndexOf(",");
+//                    if (tempIndex == -1) {
+//                        // Bruh did you make a sfx with like 500char long name? Get outta here
+//                        Janna.warn("C'mon, yo");
+//                        sfxString = "";
+//                    } else {
+//                        sfxStrings.add(sfxString.substring(0, tempIndex));
+//                        sfxString = sfxString.substring(tempIndex + 1).trim();
+//                    }
+//                }
+//            }
+//            for (int i = 0; i < sfxStrings.size(); i++) {
+//                Janna.messageQueue.queueMessage(channel, sfxMessage + "["+(i+1)+"/"+sfxStrings.size()+"]: " + sfxStrings.get(i));
+//            }
+//        }
 
         return 0;
     }

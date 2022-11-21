@@ -14,7 +14,17 @@ public class BingoCheck extends Command {
             return 1;
         }
 
-        Janna.sendMessage(channel, user.name + " has " + (Bingo.check(Janna.bingoSheets.get(user.id)) ? "" : "not ") + "won bingo!");
+        String check = Bingo.check(Janna.bingoSheets.get(user.id));
+        boolean win = check.charAt(0) == 'Y';
+        check = check.substring(1);
+
+        if (win) {
+            Janna.sendMessage(channel, user.name + " has won bingo!");
+        }
+        for (String msg : check.split("\n")) {
+            Janna.messageQueue.queueMessage(channel, user.name + " bingo: " + msg);
+        }
+
 
         return 0;
     }

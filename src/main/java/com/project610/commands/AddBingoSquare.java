@@ -27,6 +27,7 @@ public class AddBingoSquare extends Command {
             prep.setInt(2, difficulty);
             prep.setString(3, description);
             prep.executeUpdate();
+            Janna.sendMessage("Added bingo square: " + name);
         } catch (SQLException ex) {
             if (ex.getMessage().contains("[SQLITE_CONSTRAINT_UNIQUE]")) {
                 Janna.sendMessage(channel, "A bingo square for: `" + split[1] + "` already exists");

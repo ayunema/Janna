@@ -2,15 +2,16 @@ package com.project610;
 
 public class Bingo {
 
-    public static boolean check(BingoSheet sheet) {
+    public static String check(BingoSheet sheet) {
         boolean line;
 
+        String grid = "";
         // Debug output
         for (int x = 0; x < 5; x++) {
             for (int y = 0; y < 5; y++) {
-                System.out.print(Janna.bingoSquares.get(sheet.squares[x][y].id).state == 1 ? "X" : ".");
+                grid += Janna.bingoSquares.get(sheet.squares[x][y].id).state == 1 ? "⬛" : "⬜";
             }
-            System.out.println();
+            grid += "\n";
         }
 
         // Check columns
@@ -21,7 +22,7 @@ public class Bingo {
                     line = false;
                 }
             }
-            if (line) return true;
+            if (line) return "Y" + grid;
         }
 
         // Check rows
@@ -32,7 +33,7 @@ public class Bingo {
                     line = false;
                 }
             }
-            if (line) return true;
+            if (line) return "Y" + grid;
         }
 
         // Check diags
@@ -42,7 +43,7 @@ public class Bingo {
                 line = false;
             }
         }
-        if (line) return true;
+        if (line) return "Y" + grid;
 
         line = true;
         for (int i = 0; i < 5 && line; i++) {
@@ -50,9 +51,9 @@ public class Bingo {
                 line = false;
             }
         }
-        if (line) return true;
+        if (line) return "Y" + grid;
 
         // Nothin'
-        return false;
+        return "N" + grid;
     }
 }

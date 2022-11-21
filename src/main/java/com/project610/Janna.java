@@ -2244,6 +2244,7 @@ public class Janna extends JPanel {
         commandMap.put("bingocheck", new BingoCheck());
         commandMap.put("addbingosquare", new AddBingoSquare());
         commandMap.put("getbingosquare", new GetBingoSquare());
+        commandMap.put("bingosquares", new BingoSquares());
         commandMap.put("bingotoggle", new BingoToggle());
         commandMap.put("removebingosquare", new RemoveBingoSquare());
 
