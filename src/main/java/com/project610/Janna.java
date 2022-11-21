@@ -15,6 +15,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.List;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -30,19 +31,15 @@ import com.github.twitch4j.pubsub.domain.ChannelPointsRedemption;
 import com.github.twitch4j.pubsub.events.RewardRedeemedEvent;
 
 import com.netflix.hystrix.exception.HystrixRuntimeException;
-import com.project610.async.CleanupQueue;
-import com.project610.async.MessageQueue;
-import com.project610.async.SfxPageUploader;
-import com.project610.async.SpeechQueue;
+import com.project610.async.*;
+import com.project610.commands.*;
 import com.project610.structs.JList2;
 import com.project610.utils.Util;
 import net.miginfocom.swing.MigLayout;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.net.ftp.FTPClient;
-import org.apache.commons.net.ftp.FTPFile;
 import org.sqlite.SQLiteDataSource;
-import sun.net.ftp.FtpClient;
 
 import javax.swing.*;
 
@@ -68,6 +65,7 @@ public class Janna extends JPanel {
     public static CleanupQueue cleanupQueue;
     public static MessageQueue messageQueue;
     public static SfxPageUploader sfxPageUploader;
+    public static SfxUpdateThread sfxUpdateThread;
 
     public static HashMap<Integer, User> users = new HashMap<>();
     public static HashMap<String, Integer> userIds = new HashMap<>();
@@ -94,6 +92,8 @@ public class Janna extends JPanel {
     public static TreeMap<String, Sfx> sfxList = new TreeMap<>();
     public static HashMap<String, String> responseList = new HashMap<>();
     public static HashMap<String, HashMap<String,String>> reactionMods = new HashMap<>();
+    public static HashSet<String> usedSfx = new HashSet<>();
+    public static TreeMap<String, BingoSquare> bingoSquares = new TreeMap<String, BingoSquare>();
 
     //    static String ttsMode = "google"; // Pitch applies during synthesis, sounds better
     static String ttsMode = "se"; // Way more voices, speed/pitch modify SFX, but *may suddenly crash and burn*
@@ -721,7 +721,6 @@ public class Janna extends JPanel {
 
     public void uploadSfxListPage() {
         FTPClient ftp = new FTPClient();
-        //FtpClient ftp = FtpClient.create();
         try {
             File f = generateSfxPage();
 
@@ -733,6 +732,7 @@ public class Janna extends JPanel {
             ftp.storeFile(appConfig.get("sfx_ftp_path") + "/sfxlist.html", f_in);
             f_in.close();
             trace(ftp.getReplyString());
+            ftp.disconnect();
             info("Uploaded SFX List Page to FTP; Link: " + appConfig.get("sfx_page_url"));
         } catch (Exception ex) {
             error("Failed to upload SFX List page", ex);
@@ -772,6 +772,7 @@ public class Janna extends JPanel {
                 .append("<th>Phrase</th>")
                 .append("<th>Mods</th>")
                 .append("<th>Aliases</th>")
+                .append("<th>Uses</th>")
                 .append("<th>Created</th>")
                 .append("</tr>")
                 .append("</thead>");
@@ -824,6 +825,10 @@ public class Janna extends JPanel {
                         .append("</span>");
             }
             sb.append("</td>");
+
+            sb.append("<td class='cell' style='width: 50px;'>")
+                    .append(sfx.uses)
+                    .append("</td>");
 
             sb.append("<td class='cell' style='width: 200px;'>")
                     .append(sfx.created)
@@ -909,6 +914,7 @@ public class Janna extends JPanel {
         // Get app settings
 //        readAppConfig();
         loadAppConfig();
+        loadCommands();
 
         // SpeechQueue started; Will ready up and play voices as they come
         //  if allowConsecutive is true, different people can 'talk' at the same time
@@ -923,6 +929,10 @@ public class Janna extends JPanel {
         messageQueue = new MessageQueue();
         new Thread(messageQueue).start();
 
+        // Start a thread to update SFX usages periodically
+        sfxUpdateThread = new SfxUpdateThread();
+        new Thread(sfxUpdateThread).start();
+
         commandAliases = new HashMap<>();
         sfxAliases = new HashMap<>();
 
@@ -931,6 +941,7 @@ public class Janna extends JPanel {
         loadReactions();
         loadMuteList();
         loadAliases();
+        loadBingoStuff();
 
         sfxPageUploader = new SfxPageUploader();
         new Thread(sfxPageUploader).start();
@@ -1044,7 +1055,7 @@ public class Janna extends JPanel {
         long dbVersion = result.getLong(1);
         debug("dbVersion: " + dbVersion);
 
-        if (dbVersion == 0) {
+        if (dbVersion < 1) {
             executeUpdate("CREATE TABLE IF NOT EXISTS user ( "
                     + " id INTEGER PRIMARY KEY AUTOINCREMENT "
                     + ", username VARCHAR(128) UNIQUE"
@@ -1129,8 +1140,27 @@ public class Janna extends JPanel {
 
             executeUpdate("ALTER TABLE reaction ADD COLUMN created_timestamp TEXT;");
             executeUpdate("PRAGMA user_version=1");
-        } else if (dbVersion == 1) {
-            // Nothing, yet
+        }
+        if (dbVersion < 2) {
+            executeUpdate("ALTER TABLE reaction ADD COLUMN uses INTEGER DEFAULT 0;");
+            executeUpdate("PRAGMA user_version=2");
+        }
+        if (dbVersion < 3) {
+            executeUpdate("CREATE TABLE IF NOT EXISTS bingo_sheet ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", user_id"
+                    + ", square_ids VARCHAR(1024)"
+                    + ");");
+
+            executeUpdate("CREATE TABLE bingo_square ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT"
+                    + ", name VARCHAR(1024) UNIQUE"
+                    + ", description VARCHAR(1024)"
+                    + ", difficulty INTEGER"
+                    + ", state INTEGER"
+                    + ");");
+
+            executeUpdate("PRAGMA user_version=3");
         }
     }
 
@@ -1146,6 +1176,7 @@ public class Janna extends JPanel {
                 String value = result.getString("result");
                 String extra = result.getString("extra");
                 String created = result.getString("created_timestamp");
+                long uses = result.getLong("uses");
 
                 HashMap<String, String> mods = new HashMap<>();
                 reactionMods.put(key, mods);
@@ -1163,7 +1194,7 @@ public class Janna extends JPanel {
                 if (type.equalsIgnoreCase("filter")) {
                     filterList.put(key, value);
                 } else if (type.equalsIgnoreCase("sfx")) {
-                    newSfx(key, new Sfx(value, reactionMods.get(key), created));
+                    newSfx(key, new Sfx(value, reactionMods.get(key), created, uses));
                 } else if (type.equalsIgnoreCase("response")) {
                     responseList.put(key, value);
                 }
@@ -1176,6 +1207,20 @@ public class Janna extends JPanel {
     public void newSfx(String key, Sfx sfx) {
         sfxList.put(key, sfx);
         sfxDirty = true;
+    }
+
+    private void loadBingoStuff() {
+        try {
+            ResultSet squareResult = executeQuery("SELECT * FROM bingo_square");
+            String squareName = squareResult.getString("name"),
+                    squareDescription = squareResult.getString("description");
+            int squareDifficulty = squareResult.getInt("difficulty");
+
+
+            ResultSet sheetResult = executeQuery("SELECT * FROM bingo_sheet");
+        } catch (Exception ex) {
+            error("Failed to load bingo stuff", ex);
+        }
     }
 
     private void loadAliases() {
@@ -1864,15 +1909,15 @@ public class Janna extends JPanel {
 
         HashMap<String, String> emotes = getEmotes(e);
 
+        if (message.charAt(0) == '!') {
+            parseCommand(message, user, channel);
+            return;
+        }
+
         for (String phrase : responseList.keySet()) {
             if (message.toLowerCase().contains(phrase.toLowerCase())) {
                 sendMessage(channel, responseList.get(phrase));
             }
-        }
-
-        if (message.charAt(0) == '!') {
-            parseCommand(message, user, channel);
-            return;
         }
 
         boolean canSpeak = true;
@@ -1997,6 +2042,12 @@ public class Janna extends JPanel {
                     }
                 }
             }
+        }
+
+        // Increase usage of SFX, if necessary
+        if (!find.isEmpty()) {
+            sfxList.get(find).uses++;
+            usedSfx.add(find);
         }
 
         // TODO: Fix more than just `?` on the end of an sfx phrase
@@ -2166,265 +2217,67 @@ public class Janna extends JPanel {
         return emoteList;
     }
 
+    public HashMap<String, Function> commandMap = new HashMap<>();
+
+    private void loadCommands() {
+        commandMap.put("no", new No());
+        commandMap.put("stfu", new Stfu());
+        commandMap.put("mute", new Mute());
+        commandMap.put("unmute", new Unmute());
+        commandMap.put("dontbuttmebro", new DontButt());
+        commandMap.put("dobuttmebro", new DoButt());
+        commandMap.put("voice", new GetVoice());
+        commandMap.put("sfx", new SfxList());
+        commandMap.put("newsfx", new ListNewSfx());
+
+        commandMap.put("newbingo", new NewBingo());
+        commandMap.put("addbingosquare", new AddBingoSquare());
+        commandMap.put("getbingosquare", new GetBingoSquare());
+        commandMap.put("bingotoggle", new BingoToggle());
+        commandMap.put("removebingosquare", new RemoveBingoSquare());
+
+        commandMap.put("janna.addfilter", new AddFilter());
+        commandMap.put("janna.getfilter", new GetFilter());
+        commandMap.put("janna.removefilter", new RemoveFilter());
+
+        commandMap.put("janna.addresponse", new AddResponse());
+        commandMap.put("janna.getresponse", new GetResponse());
+        commandMap.put("janna.removeresponse", new RemoveResponse());
+
+        commandMap.put("janna.addsfx", new AddSfx());
+        commandMap.put("janna.getsfx", new GetSfx());
+        commandMap.put("janna.modsfx", new ModSfx());
+        commandMap.put("janna.replacesfx", new ReplaceSfx());
+        commandMap.put("janna.removesfx", new RemoveSfx());
+
+        commandMap.put("janna.addsfxalias", new AddSfxAlias());
+        commandMap.put("janna.removesfxalias", new RemoveSfxAlias());
+
+        commandMap.put("janna.addalias", new AddAlias());
+        commandMap.put("janna.removealias", new RemoveAlias());
+
+        commandMap.put("janna.voiceusers", new GetVoiceUsers());
+    }
+
     // Incoming messages starting with `!` handled here
     private void parseCommand(String message, User user, String channel) {
         message = message.substring(1);
         String[] split = message.split(" ");
         String cmd = split[0];
 
+        HashMap<String, Object> params = new HashMap<>();
+        params.put("message", message);
+        params.put("user", user);
+        params.put("channel", channel);
+
         String actualCommand = getCommand(cmd.toLowerCase());
 
-        switch (actualCommand) {
-            case "no": {
-                if (!isVIP(user.name)) {
-                    if (!speechQueue.getCurrentSpeakers(null).contains(user.name)) return;
-                    silenceCurrentVoices(user.name);
-                } else {
-                    silenceCurrentVoices();
-                }
-            }
-            break;
-            case "stfu": {
-                if (!isVIP(user.name)) return;
-                if (split.length > 1) {
-                    silenceAllVoices(split[1]);
-                } else {
-                    silenceAllVoices();
-                }
-            }
-            break;
-            case "mute": {
-                if (!isMod(user.name)) return;
-                String result = "";
-                if (split.length == 1) {
-                    sendMessage(channel, "Malformed command; Usage: !mute <username>"/* [duration]"*/);
-                    return;
-                } else if (split.length == 2) {
-                    result = muteUser(split[1], "-1");
-                } else {
-                    result = muteUser(split[1], split[2]);
-                }
-                sendMessage(channel, result);
-            }
-            break;
-            case "unmute": {
-                if (!isMod(user.name)) return;
-                String result = "";
-                if (split.length == 1) {
-                    sendMessage(channel, "Malformed command; Usage: !unmute <username>");
-                    return;
-                } else {
-                    result = unmuteUser(split[1]);
-                }
-                if (!result.isEmpty()) {
-                    sendMessage(channel, result);
-                }
-            }
-            break;
-            case "janna.addsfx": {
-                if (!isMod(user.name)) return;
-                addReaction("sfx", message, channel);
-            }
-            break;
-            case "janna.replacesfx": {
-                if (!isMod(user.name)) return;
-                editReaction("sfx", message, channel);
-            }
-            break;
-            case "janna.addfilter": {
-                if (!isMod(user.name)) return;
-                addReaction("filter", message, channel);
-            }
-            break;
-            case "janna.addresponse": {
-                if (!isMod(user.name)) return;
-                addReaction("response", message, channel);
-            }
-            break;
-            case "janna.removesfx": {
-                if (!isMod(user.name)) return;
-                removeReaction("sfx", message, channel);
-            }
-            break;
-            case "janna.removefilter": {
-                if (!isMod(user.name)) return;
-                removeReaction("filter", message, channel);
-            }
-            break;
-            case "janna.removeresponse": {
-                if (!isMod(user.name)) return;
-                removeReaction("response", message, channel);
-            }
-            break;
-            case "janna.modsfx": {
-                if (!isMod(user.name)) return;
-                modReaction("sfx", message, channel);
-            }
-            break;
-            case "janna.getsfx": {
-                getReaction("sfx", message, channel);
-            }
-            break;
-            case "janna.getfilter": {
-                if (!isMod(user.name)) return;
-                getReaction("filter", message, channel);
-            }
-            break;
-            case "janna.getresponse": {
-                if (!isMod(user.name)) return;
-                getReaction("response", message, channel);
-            }
-            case "janna.addalias": {
-                if (!isMod(user.name)) return;
-                addAlias(message, channel);
-            }
-            break;
-            case "janna.removealias": {
-                if (!isMod(user.name)) return;
-                removeAlias(message, channel);
-            }
-            break;
-            case "janna.addsfxalias": {
-                if (!isMod(user.name)) return;
-                addSfxAlias(message, channel);
-            }
-            break;
-            case "janna.removesfxalias": {
-                if (!isMod(user.name)) return;
-                removeSfxAlias(message, channel);
-            }
-            break;
-            case "dontbuttmebro": {
-                if (setUserPref(user, "butt_stuff", "0")) {
-                    twitch.getChat().sendMessage(channel, "Okay, I won't butt you, bro.");
-                }
-            }
-            break;
-            case "dobuttmebro": {
-                if (setUserPref(user, "butt_stuff", "1")) {
-                    twitch.getChat().sendMessage(channel, "Can't get enough of that butt.");
-                }
-            }
-            break;
-            case "voice": {
-                sendMessage(channel, "@" + user.name + ", Your current voice is: " + user.voiceName +
-                        " (Speed: " + user.voiceSpeed + " (0.75 ~ 4.0), Pitch: " + user.voicePitch + " (-20 ~ 20), Freebies: " + user.freeVoice);
-            }
-            break;
-            case "sfx": {
-                if ("1".equals(appConfig.get("sfx_page_enabled")) && split.length == 1) {
-                    sendMessage(channel, "All SFX: " + appConfig.get("sfx_page_url"));
-                    break;
-                }
-                String sfxString = "";
-                ArrayList<String> sfxResults = new ArrayList<>();
-                if (split.length > 1) {
-                    String search = split[1];
-                    for (String key : sfxList.keySet()) {
-                        if (key.matches(".*?"+search+".*?")) {
-                            sfxResults.add(key);
-                        }
-                    }
-                } else {
-                    for (String key : sfxList.keySet()) {
-                        sfxResults.add(key);
-                    }
-                }
-
-                String sfxMessage = "All SFX";
-                if (split.length > 1) {
-                    if (split[1].length() < 3) {
-                        sendMessage(channel, "Refine that SFX search a little, why don't you? (3 chars minimum)");
-                        break;
-                    }
-                    sfxMessage+= " containing '" + split[1] + "'";
-                }
-                sfxMessage+= ": ";
-
-                int limit = 400;
-                for (String sfx : sfxResults) {
-                    sfxString += (sfxString.isEmpty() ? "" : ", ") + sfx;
-                }
-                if (sfxString.length() < limit) {
-                    sendMessage(channel, sfxMessage + sfxString);
-                } else {
-                    ArrayList<String> sfxStrings = new ArrayList<>();
-                    while (!sfxString.isEmpty()) {
-                        // String short enough yet?
-                        if (sfxString.length() < limit) {
-                            sfxStrings.add(sfxString);
-                            sfxString = "";
-                        }
-                        // String still too long
-                        else {
-                            String temp = sfxString.substring(0, limit);
-                            int tempIndex = temp.lastIndexOf(",");
-                            if (tempIndex == -1) {
-                                // Bruh did you make a sfx with like 500char long name? Get outta here
-                                warn("C'mon, yo");
-                                sfxString = "";
-                            } else {
-                                sfxStrings.add(sfxString.substring(0, tempIndex));
-                                sfxString = sfxString.substring(tempIndex + 1).trim();
-                            }
-                        }
-                    }
-                    for (int i = 0; i < sfxStrings.size(); i++) {
-                        messageQueue.queueMessage(channel, sfxMessage + "["+(i+1)+"/"+sfxStrings.size()+"]: " + sfxStrings.get(i));
-                    }
-                }
-            }
-            break;
-            case "newsfx": {
-                String sfxString = "";
-                String sfxMessage = "Some new SFX (!sfx for full list)";
-                sfxMessage+= ": ";
-
-                int count = 10;
-                if (split.length > 1) {
-                    try {
-                        count = Integer.parseInt(split[1]);
-                        if (count > 25) count = 25;
-                        else if (count < 1) count = 1;
-                    } catch (NumberFormatException ex) {
-                        // Meh
-                    }
-                }
-
-                int limit = 420; // Truncate if too long
-
-                try {
-                    ResultSet results = executeQuery("SELECT * FROM reaction WHERE type = 'sfx' ORDER BY created_timestamp DESC LIMIT " + count + ";");
-                    while (results.next()) {
-                        sfxString += (sfxString.isEmpty() ? "" : ", ") + results.getString("phrase");
-                    }
-                } catch (SQLException ex) {
-                    // This shouldn't happen
-                    error("Error getting new SFX", ex);
-                }
-                if (sfxString.length() > limit) {
-                    sfxString = sfxString.substring(0, limit) + "...";
-                }
-                sendMessage(channel, sfxMessage + sfxString);
-            }
-            break;
-            case "janna.voiceusers": {
-                try {
-                    PreparedStatement prep = sqlCon.prepareStatement("SELECT COUNT(*) FROM user WHERE voicename LIKE ?;");
-                    prep.setString(1, split[1]);
-                    ResultSet result = prep.executeQuery();
-                    int count = result.getInt(1);
-                    String are_is = (count == 1 ? "There is " + count + " person" : "There are " + count + " people");
-                    sendMessage(channel, are_is + " using the voice: " + split[1]);
-                } catch (SQLException ex) {
-                    // TODO: Eh
-                }
-            }
-            break;
+        if (commandMap.get(actualCommand) != null) {
+            commandMap.get(actualCommand).apply(params);
         }
     }
 
-    private void addAlias(String message, String channel) {
+    public void addAlias(String message, String channel) {
         try {
             String[] split = message.split(" ");
             String command = split[1].toLowerCase();
@@ -2457,7 +2310,7 @@ public class Janna extends JPanel {
         }
     }
 
-    private void removeAlias(String message, String channel) {
+    public void removeAlias(String message, String channel) {
         try {
             String[] split = message.split(" ");
             String alias = split[1].toLowerCase();
@@ -2477,7 +2330,7 @@ public class Janna extends JPanel {
         }
     }
 
-    private void addSfxAlias(String message, String channel) {
+    public void addSfxAlias(String message, String channel) {
         try {
             String[] split = message.split(" ");
             String sfx = split[1].toLowerCase();
@@ -2514,7 +2367,7 @@ public class Janna extends JPanel {
         }
     }
 
-    private void removeSfxAlias(String message, String channel) {
+    public void removeSfxAlias(String message, String channel) {
         try {
             String[] split = message.split(" ");
             String alias = split[1].toLowerCase();
@@ -2537,20 +2390,20 @@ public class Janna extends JPanel {
     }
 
     // Return the 'root' command, in the event that a user specified an alias
-    private String getCommand(String alias) {
+    public String getCommand(String alias) {
         String command = commandAliases.get(alias);
         if (command == null) return alias;
         else return command;
     }
 
     // Return the 'root' command, in the event that a user specified an alias
-    private String getActualSfx(String alias) {
+    public String getActualSfx(String alias) {
         String sfx = sfxAliases.get(alias);
         if (sfx == null) return alias;
         else return sfx;
     }
 
-    private void getReaction(String type, String message, String channel) {
+    public void getReaction(String type, String message, String channel) {
         try {
             String[] split = message.split(" ");
             String phrase = split[1].toLowerCase();
@@ -2590,7 +2443,7 @@ public class Janna extends JPanel {
         }
     }
 
-    private String muteUser(String username, String expiry) {
+    public String muteUser(String username, String expiry) {
         username = username.toLowerCase();
         long expiryDate = Long.MAX_VALUE;
         try {
@@ -2635,7 +2488,7 @@ public class Janna extends JPanel {
         }
     }
 
-    private String unmuteUser(String username) {
+    public String unmuteUser(String username) {
         username = username.toLowerCase();
         try {
             PreparedStatement prep = sqlCon.prepareStatement("DELETE FROM muted_username WHERE username=?");
@@ -2717,7 +2570,7 @@ public class Janna extends JPanel {
             prep.executeUpdate();
             switch (type) {
                 case "sfx":
-                    newSfx(phrase, new Sfx(result, null, Util.currentTime()));
+                    newSfx(phrase, new Sfx(result, null, Util.currentTime(), 0));
                     sendMessage(channel, "Added SFX for phrase: " + phrase);
                     break;
                 case "filter":
@@ -2766,7 +2619,7 @@ public class Janna extends JPanel {
             switch (type) {
                 case "sfx":
                     cleanupQueue.queue.add(Sfx.getFileLocation(sfxList.get(phrase)));
-                    newSfx(phrase, new Sfx(result, reactionMods.get(phrase), sfxList.get(phrase).created));
+                    newSfx(phrase, new Sfx(result, reactionMods.get(phrase), sfxList.get(phrase).created, sfxList.get(phrase).uses));
                     // TODO: Clear SFX cache method - Maybe works now?
                     sendMessage(channel, "Edited SFX for phrase: " + phrase);
                     break;
@@ -2849,7 +2702,7 @@ public class Janna extends JPanel {
         }
     }
 
-    private void modReaction(String type, String message, String channel) {
+    public void modReaction(String type, String message, String channel) {
         String[] split = message.split(" ", 3);
         String phrase = "";
         try {
@@ -2873,7 +2726,7 @@ public class Janna extends JPanel {
                             if (newMod.length == 1 && newMod[0].equalsIgnoreCase("volume")) {
                                 mods.remove("volume");
                                 reactionMods.put(phrase, mods);
-                                newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase), sfxList.get(phrase).created));
+                                newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase), sfxList.get(phrase).created, sfxList.get(phrase).uses));
                                 // Delete cached thing, since mods are applied on initial convert
                                 cleanupQueue.queue.add(Sfx.getFileLocation(cleanupUrl));
 
@@ -2926,7 +2779,7 @@ public class Janna extends JPanel {
             if (prep.executeUpdate() > 0) {
                 switch (type) {
                     case "sfx":
-                        newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase), sfxList.get(phrase).created));
+                        newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase), sfxList.get(phrase).created, sfxList.get(phrase).uses));
                         // Delete cached thing, since mods are applied on initial convert
                         cleanupQueue.queue.add(Sfx.getFileLocation(cleanupUrl));
                         sendMessage(channel, output);

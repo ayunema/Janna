@@ -16,7 +16,7 @@ public class MessageQueue implements Runnable {
             }
 
             try {
-                Thread.sleep(2000); // pee ell zed
+                Thread.sleep(1000); // pee ell zed
             } catch (InterruptedException ex) {
                 // ¯\_(ツ)_/¯
             }

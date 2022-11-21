@@ -10,22 +10,13 @@ public class Sfx {
     public String created;
     public HashMap<String, String> mods;
     public TreeSet<String> aliases;
+    public long uses;
 
-    /*public Sfx(String url, String extra) {
-        this.url = url;
-        String temp = "";
-        for (String param : extra.split(",")) {
-            if (!param.trim().isEmpty()) {
-                temp += " " + parseParam(param);
-            }
-        }
-        this.extra = temp;
-    }*/
-
-    public Sfx(String url, HashMap<String, String> mods, String created) {
+    public Sfx(String url, HashMap<String, String> mods, String created, long uses) {
         this.url = url;
         this.created = created;
         this.mods = mods;
+        this.uses = uses;
         if (null == mods) {
             mods = new HashMap<>();
         }
