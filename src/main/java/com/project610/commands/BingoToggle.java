@@ -12,6 +12,8 @@ public class BingoToggle extends Command {
     public Object apply(Object o) {
         super.apply(o);
 
+        if (!instance.isMod(user.name)) return 1;
+
         String name = split[1];
 
         try {

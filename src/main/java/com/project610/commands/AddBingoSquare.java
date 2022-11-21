@@ -11,6 +11,8 @@ public class AddBingoSquare extends Command {
     public Object apply(Object o) {
         super.apply(o);
 
+        if (!instance.isMod(user.name)) return 1;
+
         String[] split = message.split(" ", 4);
         String name = "";
         String description = split.length == 4 ? split[3] : "";

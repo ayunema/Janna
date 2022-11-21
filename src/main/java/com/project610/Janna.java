@@ -1038,7 +1038,7 @@ public class Janna extends JPanel {
         if (ttsMode.equalsIgnoreCase("google")) {
             new Voice("Is Google text to speech working and stuff?", null); // Breaks on first-time auth?
         } else if (ttsMode.equalsIgnoreCase("se")) {
-            new SeVoice(null, new TTSMessage("message", "Is StreamElements text to speech"), new TTSMessage("message", "working and stuff?"));
+            new SeVoice(null, new TTSMessage("message", "Janna TTS online"));
         }
         info(Util.currentTime() + " - Beware I live");
     }

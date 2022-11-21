@@ -15,6 +15,10 @@ public class GetBingoSquare extends Command {
         try {
             String[] split = message.split(" ");
             String name = split[1].toLowerCase();
+            if (name.length() < 3) {
+                Janna.sendMessage("Try searching for something longer than 3 characters");
+                return 1;
+            }
             PreparedStatement prep = instance.sqlCon.prepareStatement("SELECT * FROM bingo_square WHERE name LIKE ?;");
             prep.setString(1, "%" + name + "%");
             ResultSet result = prep.executeQuery();
