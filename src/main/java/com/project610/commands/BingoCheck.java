@@ -21,8 +21,10 @@ public class BingoCheck extends Command {
         if (win) {
             Janna.sendMessage(channel, user.name + " has won bingo!");
         }
+
+        Janna.messageQueue.queueMessage(channel, user.name + " bingo: ");
         for (String msg : check.split("\n")) {
-            Janna.messageQueue.queueMessage(channel, user.name + " bingo: " + msg);
+            Janna.messageQueue.queueMessage(channel, msg);
         }
 
 

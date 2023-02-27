@@ -760,7 +760,8 @@ public class Janna extends JPanel {
                 .append(".cellheader { font-weight: bold; background: #66d; color: #fff; }")
                 .append(".copy { border:none; background: none; cursor: pointer; }")
                 .append(".alias { border: 1px dashed #888; border-radius: 4px; margin: 0px 3px; padding: 1px 2px; }")
-                .append(".tiny { margin-left: 25px; font-size: 0.7em; color: #999; }")
+                .append(".tiny { margin-left: 25px; color: #999; font-size: 0.7em; font-size: 0em; }")
+                .append(".hidden { font-size: 0em; }")
                 .append("</style>")
                 .append("<script src='https://www.project610.com/janna/libs/sorttable.js'></script>")
                 .append("</head>");
@@ -833,7 +834,7 @@ public class Janna extends JPanel {
                     .append("</td>");
 
             String sfxCreated1 = sfx.created.substring(0, sfx.created.indexOf("T")),
-                    sfxCreated2 = "<span class='tiny'>"+sfx.created.substring(sfx.created.indexOf("T")+1)+"</span>";
+                    sfxCreated2 = "<span class='hidden'>"+sfx.created.substring(sfx.created.indexOf("T")+1)+"</span>";
             sb.append("<td class='cell' style='width: 200px;'>")
                     .append(sfxCreated1 + " " + sfxCreated2)
                     .append("</td>");
@@ -1921,15 +1922,15 @@ public class Janna extends JPanel {
 
         HashMap<String, String> emotes = getEmotes(e);
 
-        if (message.charAt(0) == '!') {
-            parseCommand(message, user, channel);
-            return;
-        }
-
         for (String phrase : responseList.keySet()) {
             if (message.toLowerCase().contains(phrase.toLowerCase())) {
                 sendMessage(channel, responseList.get(phrase));
             }
+        }
+
+        if (message.charAt(0) == '!') {
+            parseCommand(message, user, channel);
+            return;
         }
 
         boolean canSpeak = true;
@@ -1971,7 +1972,7 @@ public class Janna extends JPanel {
         //new Speaker(message).start();
     }
 
-    private TTSMessage[] makeTTSMessage(HashMap<String, String> emotes, String message) {
+    public TTSMessage[] makeTTSMessage(HashMap<String, String> emotes, String message) {
 
         ArrayList<TTSMessage> messages = new ArrayList<>();
 
@@ -2272,6 +2273,10 @@ public class Janna extends JPanel {
         commandMap.put("janna.removealias", new RemoveAlias());
 
         commandMap.put("janna.voiceusers", new GetVoiceUsers());
+
+        commandMap.put("janna.clip", new GetClip());
+
+        //commandMap.put("", new ());
     }
 
     // Incoming messages starting with `!` handled here
@@ -2720,19 +2725,18 @@ public class Janna extends JPanel {
     public void modReaction(String type, String message, String channel) {
         String[] split = message.split(" ", 3);
         String phrase = "";
+        HashMap<String, String> mods = new HashMap<>();
         try {
             phrase = split[1].toLowerCase();
             String extra = (split.length > 2 ? split[2] : "");
             String output = "", cleanupUrl = "";
             String[] newMod = extra.split("=", 2);
-            HashMap<String, String> mods = new HashMap<>();
             switch (type) {
                 case "sfx":
                     Sfx currentSfx = sfxList.get(phrase);
                     String url = currentSfx.url;
                     cleanupUrl = url;
                     mods = currentSfx.mods;
-                    mods.put(newMod[0], newMod[1]);
 
                     // Override newMod stuff if needed
                     if (newMod[0].toLowerCase().startsWith("volume")) {
@@ -2762,28 +2766,25 @@ public class Janna extends JPanel {
                             int volume = Integer.parseInt(newMod[1]);
 
                             if (newMod[0].equalsIgnoreCase("volume")) {
-                                mods.put("volume", "" + volume);
+                                newMod[1] = "" + volume;
                             } else if (newMod[0].endsWith("-")) {
-                                mods.put("volume", "" + (currentVolume - volume));
                                 newMod[0] = "volume";
+                                newMod[1] = "" + (currentVolume - volume);
                             } else if (newMod[0].endsWith("+")) {
-                                mods.put("volume", "" + (currentVolume + volume));
                                 newMod[0] = "volume";
+                                newMod[1] = "" + (currentVolume + volume);
                             }
                         } catch (Exception ex) {
                             error("Failed to mod sfx volume", ex);
                         }
                     }
-                    reactionMods.put(phrase, mods);
                     sfxDirty = true;
-                    output = "Modified " + type + " for phrase: " + phrase;
                     break;
                 case "filter":
                     break;
                 case "response":
                     break;
             }
-
 
             PreparedStatement prep = sqlCon.prepareStatement(
                     "REPLACE INTO reaction_mod (reaction_id, mod, data) "
@@ -2792,18 +2793,22 @@ public class Janna extends JPanel {
             prep.setString(2, newMod[0]);
             prep.setString(3, mods.get(newMod[0]));
             if (prep.executeUpdate() > 0) {
+                mods.put(newMod[0], newMod[1]);
+                reactionMods.put(phrase, mods);
+                output = "Modified " + type + " for phrase: " + phrase;
+
                 switch (type) {
                     case "sfx":
                         newSfx(phrase, new Sfx(cleanupUrl, reactionMods.get(phrase), sfxList.get(phrase).created, sfxList.get(phrase).uses));
                         // Delete cached thing, since mods are applied on initial convert
                         cleanupQueue.queue.add(Sfx.getFileLocation(cleanupUrl));
-                        sendMessage(channel, output);
                         break;
                     case "filter":
                         break;
                     case "reponse":
                         break;
                 }
+                sendMessage(channel, output);
             } else {
                 sendMessage(channel, "No " + type + " found " + (type.equals("response") ? "to" : "for") + " phrase: " + phrase);
             }

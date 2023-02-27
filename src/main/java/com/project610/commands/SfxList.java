@@ -1,8 +1,10 @@
 package com.project610.commands;
 
 import com.project610.Janna;
+import com.project610.SeVoice;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 
 public class SfxList extends Command {
 
@@ -43,6 +45,16 @@ public class SfxList extends Command {
             sfxString += (sfxString.isEmpty() ? "" : ", ") + sfx;
         }
         Janna.messageQueue.queueLongMessage(channel, sfxMessage, sfxString);
+
+        if (sfxResults.size() == 1) {
+            new SeVoice(
+                    user,
+                    instance.makeTTSMessage(
+                            new HashMap<>(),
+                            Janna.butcher(sfxResults.get(0), user)
+                    )
+            );
+        }
 //        int limit = 400;
 //        if (sfxString.length() < limit) {
 //            Janna.sendMessage(channel, sfxMessage + sfxString);

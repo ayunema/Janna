@@ -9,7 +9,7 @@ public class Bingo {
         // Debug output
         for (int x = 0; x < 5; x++) {
             for (int y = 0; y < 5; y++) {
-                grid += Janna.bingoSquares.get(sheet.squares[x][y].id).state == 1 ? "⬛" : "⬜";
+                grid += Janna.bingoSquares.get(sheet.squares[x][y].id).state == 1 ? "🟩" : "⬛";
             }
             grid += "\n";
         }
