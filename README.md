@@ -28,7 +28,7 @@ ___
 * Now you'll be prompted to log in as the broadcaster via Twitch. 
   * Without this, Janna can't make/manage channel point rewards, or really do much of anything at all.
 
-* Once you've logged in, you should get a "Is StreamElements text to speech working and stuff?" message. If you hear that, then it is!
+* Once you've logged in, you should get a "Janna TTS online" message. If you hear that, then it is!
   * One day, this'll be configurable
 
 ___
@@ -46,26 +46,61 @@ ___
     * `First of each` Only read the first occurrence of each emote once
     * `First only` Only read the first emote
 
-  #### Mod commands
-  * `!no` Silence any messages currently being read
-  * `!stfu` Silence every message currently queued up to play (Or playing now)
-  * `!janna.addsfx <phrase> <https://__________>` Play the sound in the URL when `phrase` shows up in chat
-     (Only the first occurrence of SFX will be read, to avoid mega-spam)
-  * `!janna.modsfx <phrase> <effect>
-    * Currently only supports volume, eg: volume=+4
-  * `!janna.removesfx <phrase>` Remove the SFX associated with `phrase`
-  * `!janna.addfilter <phrase> <replacement>` Janna will read `phrase` as if the chatter wrote `replacement`
-    * Useful example: !janna.addresponse !voices https://docs.google.com/spreadsheets/d/1hrhoy3yoLjKE_N_XgHwG8qFAWWxMch6CerqV2xX-XOs
-  * `!janna.removefilter <phrase>` Remove the filter associated with `phrase`
-  * `!janna.addreponse <phrase> <response>` Write a response in chat if `phrase` shows up anywhere in a user's message
-  * `!janna.addalias <oldCommand> <newCommand>` Allows users to use `newCommand` instead of `oldCommand`
-    * Example: !janna.addalias janna.addsfx addsfx (Note: You can write !addsfx or addsfx, it doesn't matter)
-  * `!janna.removealias <newCommand>` Remove the alias associated with `newCommand`
-
   #### Everybody commands
   * (Janna is very mature, and 3% of chat messages will have "but enough about my butt" read after them)
     * `!dontbuttmebro` Your messages will no longer "enough about my butt"
     * `!dobuttmebro` If you change your mind, this will turn "enough about my butt" back on
   * `!voice` Show in chat what voice, speed, and pitch you are currently using
+  * `!sfx [search]` Get a list of all SFX, or a subset if you add a search term
+  * `!newsfx [1-25]` Show 10 (or 1-25 if specified) of the most recently added SFX
   * `!janna.getsfx <sfxCode>` Outputs the URL and any extra modifications (eg: Volume) for `sfxCode`
   * `!janna.voiceusers <voiceCode>` Tells you how many different chatters are currently using `voiceCode` (In case you want to be unique)
+  * `!no` Silence your own current message
+  * `!stfu` Silence all of your currently queued messages
+  * **Bingo stuff**
+    * `!joinbingo` Gets a new bingo sheet for you
+    * `!bingocheck` Check to see the state of your bingo sheet (This is poopy right now)
+    * `!getbingosquare <name>` Get info about any bingo squares containing **name**
+    * `!bingosquares [name]` List all bingo squares [only include those matching **name** if specified]
+    
+
+  #### Mod commands
+  * `!no` Silence any messages currently being read
+  * `!stfu [username]` Silence every message currently queued up to play (Or playing now) [Can be for just one user]
+  * `!mute <username>` Prevents *username*'s messages from being read out loud
+  * `!unmute <username>` Unmutes muted user
+  
+  * `!janna.addalias <oldCommand> <newCommand>` Allows users to use `newCommand` instead of `oldCommand`
+    * Example: !janna.addalias janna.addsfx addsfx (Note: You can write !addsfx or addsfx, it doesn't matter)
+  * `!janna.removealias <newCommand>` Remove the alias associated with `newCommand`
+  
+  * `!janna.addsfx <phrase> <https://__________>` Play the sound in the URL when `phrase` shows up in chat
+    * (Only the first occurrence of SFX will be read, to avoid mega-spam)
+    * (Use `multi` as the URL to make a multi-sfx entry)
+  * `!janna.getsfx <sfx>` Gets URL/mods for an SFX named `sfx`
+  * `!janna.modsfx <phrase> <effect>`
+    * `effect` eg: volume=5, volume-=8
+    * Can use this for random SFX as well
+  * `!janna.replacesfx <phrase> <https://__________>` Change the URL of the SFX source without deleting the SFX
+  * `!janna.removesfx <phrase>` Remove the SFX associated with `phrase`
+  * `!janna.addsfxalias <phrase> <alias>` Allow `alias` to be used to trigger the SFX associated with `phrase`
+  * `!janna.removesfxalias <alias>` Remove an SFX alias
+  
+  * `!janna.addfilter <phrase> <replacement>` Janna will read `phrase` as if the chatter wrote `replacement`
+  * `!janna.getfilter <phrase>` Get info about a filter
+    * Useful example: !janna.addresponse !voices https://docs.google.com/spreadsheets/d/1hrhoy3yoLjKE_N_XgHwG8qFAWWxMch6CerqV2xX-XOs
+  * `!janna.removefilter <phrase>` Remove the filter associated with `phrase`
+  
+  * `!janna.addreponse <phrase> <response>` Write a response in chat if `phrase` shows up anywhere in a user's message
+  * `!janna.addreponse <phrase>` Get info about a repsonse
+  * `!janna.addreponse <phrase>` Remove the response associated with `phrase`
+  
+  * **Bingo stuff**
+    * `!newbingo` Wipes all bingo sheets
+    * `!addbingosquare <name> <difficulty> [description]` Add a new Bingo square (Name must have no spaces), with a numeric difficulty
+      * 0: Free square
+      * 1: Common
+      * 2: Uncommon
+      * 3: Rare
+    * `!removebingosquare <name>` Remove the named bingo square 
+    * `!bingotoggle <name>` Toggles the state of named bingo square
