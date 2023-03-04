@@ -2,13 +2,8 @@ package com.project610.commands;
 
 import com.github.twitch4j.helix.domain.Clip;
 import com.github.twitch4j.helix.domain.ClipList;
-import com.github.twitch4j.helix.domain.Follow;
-import com.github.twitch4j.helix.domain.FollowList;
-import com.github.twitch4j.util.PaginationUtil;
-import com.project610.Auth;
 import com.project610.Creds;
-import com.project610.Janna;
-import org.checkerframework.checker.units.qual.A;
+import com.project610.utils.Util;
 
 import java.util.*;
 
@@ -22,19 +17,22 @@ public class GetClip extends Command {
 
         // Handle args
         if (split.length == 1) {
-            sendMessage(channel, "Usage: !clip <searchTerm> [channel:channelName] [by:user] [game:gameTitle]");
+            sendMessage(channel, "Usage: !clip <searchTerm> [channel:channelName] [by:user] [game:\"game title\"]");
             return 1;
         }
 
+
+        String[] split = Util.parseArgs(message);
+
+
         ArrayList<String> searchTerms = new ArrayList<>();
         String fullSearch = "";
-        String channelId = mainchannel_user.getId(), clippedBy = "", game = "";
+        String channelId = getChannelId(channel), clippedBy = "", game = "";
         for (int i = 1; i < split.length; i++) {
             String temp = split[i].toLowerCase();
             if (temp.startsWith("channel:")) {
                 try {
                     channelId = getChannelId(temp.split(":")[1]);
-                    System.out.println("id: " + channelId);
                 } catch (Exception ex) {
                     sendMessage(channel, "Couldn't get clips for " + temp);
                     error("Failed to get channelID for " + temp, ex);
@@ -51,10 +49,10 @@ public class GetClip extends Command {
         }
         fullSearch = fullSearch.trim();
 
-        if (fullSearch.isEmpty() && !game.isEmpty()) {
-            sendMessage(channel, "Need at least 1 Clip Title search term if you want to filter by game (Blame Twitch)");
-            return 1;
-        }
+//        if (fullSearch.isEmpty() && !game.isEmpty()) {
+//            sendMessage(channel, "Need at least 1 Clip Title search term if you want to filter by game (Blame Twitch)");
+//            return 1;
+//        }
 
         // Gather all clips
         LinkedHashSet<Clip> clips = new LinkedHashSet<>();
@@ -68,7 +66,6 @@ public class GetClip extends Command {
             results = clips.size();
             clips.addAll(clipList.getData());
         }
-        System.out.println("Size: " + clips.size());
 
         // Filter out stuff
         if (!clippedBy.isEmpty()) {
@@ -90,7 +87,6 @@ public class GetClip extends Command {
                 }
             }
             clips.retainAll(userClips);
-            System.out.println("Size: " + clips.size());
         }
 
         // Try to find clip with increasing lenience
@@ -137,18 +133,28 @@ public class GetClip extends Command {
             foundClips = new ArrayList<>(clips);
         }
 
-        // TODO: Add support for multi-word game titles
         if (!game.isEmpty()) {
+            trace("Checking for game match");
             HashSet<Clip> clipSet = new HashSet<>(foundClips);
             int numClips = clipSet.size(), clipLimit = 30;
-            if (numClips > clipLimit) {
-                sendMessage(channel, "Too many results (" + numClips + "/" + clipLimit + ") to filter by game, try narrowing down your search a bit...");
-                return 1;
-            }
+//            if (numClips > clipLimit) {
+//                sendMessage(channel, "Too many results (" + numClips + "/" + clipLimit + ") to filter by game, try narrowing down your search a bit...");
+//                return 1;
+//            }
 
             LinkedHashSet<Clip> gameClips = new LinkedHashSet<>();
+            int temp = 0;
             for (Clip clip : clipSet) {
-                String gameName = twitch.getHelix().getGames(Creds._helixtoken, Arrays.asList(clip.getGameId()), null, null).execute().getGames().get(0).getName().toLowerCase();
+                System.out.print ("Check clip #" + temp++ + "... ");
+                String gameName = "";
+                try {
+                    if (!clip.getGameId().isEmpty()) {
+                        gameName = Util.getGameById(clip.getGameId()).toLowerCase();
+                    }
+                } catch (Exception ex) {
+                    warn("Failed to get game name for some reason???" + ex.toString());
+                }
+
                 if (gameName.contains(game)) {
                     gameClips.add(clip);
                 }
@@ -161,7 +167,7 @@ public class GetClip extends Command {
         }
 
         sendMessage(channel, getRandomClip(foundClips).getUrl());
-        return 1;
+        return 0;
     }
 
     private Clip getRandomClip(ArrayList<Clip> foundClips) {

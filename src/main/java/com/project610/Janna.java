@@ -1157,7 +1157,7 @@ public class Janna extends JPanel {
                     + ", square_ids VARCHAR(1024)"
                     + ");");
 
-            executeUpdate("CREATE TABLE bingo_square ("
+            executeUpdate("CREATE TABLE IF NOT EXISTS bingo_square ("
                     + "id INTEGER PRIMARY KEY AUTOINCREMENT"
                     + ", name VARCHAR(1024) UNIQUE"
                     + ", description VARCHAR(1024)"
@@ -1166,6 +1166,14 @@ public class Janna extends JPanel {
                     + ");");
 
             executeUpdate("PRAGMA user_version=3");
+        }
+        if (dbVersion < 4) {
+            executeUpdate("CREATE TABLE IF NOT EXISTS twitch_games ("
+                    + "id VARCHAR(128) PRIMARY KEY"
+                    + ", name VARCHAR(1024)"
+                    + ");");
+
+            executeUpdate("PRAGMA user_version=4");
         }
     }
 
