@@ -17,7 +17,7 @@ public class MessageQueue implements Runnable {
             }
 
             try {
-                Thread.sleep(150); // Wait for the rate (limiter)
+                Thread.sleep(150); // Wait for the rate (limiter) NOTE: Can't check for VIP status, so just VIP the bot
             } catch (InterruptedException ex) {
                 // ¯\_(ツ)_/¯
             }

@@ -9,6 +9,7 @@ import java.util.function.Function;
 import static com.project610.Janna.speechQueue;
 
 public class Command implements Function {
+    HashMap<String, Object> params;
     User user;
     String channel;
     String message;
@@ -17,7 +18,7 @@ public class Command implements Function {
 
     @Override
     public Object apply(Object o) {
-        HashMap<String, Object> params = (HashMap<String, Object>)o;
+        params = (HashMap<String, Object>)o;
         user = (User)params.get("user");
         message = "" + params.get("message");
         split = message.split(" ");

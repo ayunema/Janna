@@ -1645,8 +1645,17 @@ public class Janna extends JPanel {
     }
 
     // Send a message to a specific channel on Twitch
-    public static boolean sendMessage(String channel, String s) {
-        return twitch.getChat().sendMessage(channel, s);
+    public static void sendMessage(String channel, String s) {
+        new Thread(() -> {
+            for (int i = 0; i < 5; i++) {
+                if (twitch.getChat().sendMessage(channel, s)) {
+                    return;
+                }
+                try {
+                    Thread.sleep(200);
+                } catch (Exception ex) {}
+            }
+        }).start();
     }
 
     // Screw around with the text of a message before having it read aloud (Anti-spam measures will go here)
@@ -2283,6 +2292,7 @@ public class Janna extends JPanel {
         commandMap.put("janna.voiceusers", new GetVoiceUsers());
 
         commandMap.put("janna.clip", new GetClip());
+        commandMap.put("janna.highlight", new GetHighlight());
 
         //commandMap.put("", new ());
     }
@@ -2799,7 +2809,7 @@ public class Janna extends JPanel {
                     + "VALUES ((SELECT id FROM reaction WHERE phrase = ?), ?, ?);");
             prep.setString(1, phrase);
             prep.setString(2, newMod[0]);
-            prep.setString(3, mods.get(newMod[0]));
+            prep.setString(3, newMod[1]);
             if (prep.executeUpdate() > 0) {
                 mods.put(newMod[0], newMod[1]);
                 reactionMods.put(phrase, mods);

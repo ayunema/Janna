@@ -3,6 +3,7 @@ package com.project610.commands;
 import com.github.twitch4j.helix.domain.Clip;
 import com.github.twitch4j.helix.domain.ClipList;
 import com.project610.Creds;
+import com.project610.Janna;
 import com.project610.utils.Util;
 
 import java.util.*;
@@ -10,14 +11,16 @@ import java.util.*;
 import static com.project610.Janna.*;
 
 public class GetClip extends Command {
+    boolean fallback = false;
 
     @Override
     public Object apply(Object o) {
         super.apply(o);
+        if (params.get("fallback") != null) fallback = true;
 
         // Handle args
         if (split.length == 1) {
-            sendMessage(channel, "Usage: !clip <searchTerm> [channel:channelName] [by:user] [game:\"game title\"]");
+            messageQueue.queueMessage(channel, "Usage: !clip <searchTerm> [channel:channelName] [by:user] [game:\"game title\"]");
             return 1;
         }
 
@@ -34,7 +37,7 @@ public class GetClip extends Command {
                 try {
                     channelId = getChannelId(temp.split(":")[1]);
                 } catch (Exception ex) {
-                    sendMessage(channel, "Couldn't get clips for " + temp);
+                    messageQueue.queueMessage(channel, "Couldn't get clips for " + temp);
                     error("Failed to get channelID for " + temp, ex);
                     return 1;
                 }
@@ -48,11 +51,6 @@ public class GetClip extends Command {
             }
         }
         fullSearch = fullSearch.trim();
-
-//        if (fullSearch.isEmpty() && !game.isEmpty()) {
-//            sendMessage(channel, "Need at least 1 Clip Title search term if you want to filter by game (Blame Twitch)");
-//            return 1;
-//        }
 
         // Gather all clips
         LinkedHashSet<Clip> clips = new LinkedHashSet<>();
@@ -82,7 +80,7 @@ public class GetClip extends Command {
                     }
                 }
                 if (userClips.size() == 0) {
-                    sendMessage(channel, "No clips matching by:"+clippedBy);
+                    messageQueue.queueMessage(channel, "No clips matching by:"+clippedBy);
                     return 1;
                 }
             }
@@ -126,8 +124,15 @@ public class GetClip extends Command {
 
             // If after all this, we've got nothing, maybe just give up
             if (foundClips.size() == 0) {
-                sendMessage(channel, "Couldn't find any clips, sorry!");
-                return 1;
+                if (params.get("fallback") == null) {
+                    messageQueue.queueMessage(channel, "Couldn't find any clips, sorry! Will see if any similar highlights exist");
+                    params.put("fallback", true);
+                    return Janna.instance.commandMap.get("janna.highlight").apply(params);
+                }
+                else {
+                    messageQueue.queueMessage(channel, "Couldn't find any clips, either");
+                    return 1;
+                }
             }
         } else {
             foundClips = new ArrayList<>(clips);
@@ -136,11 +141,6 @@ public class GetClip extends Command {
         if (!game.isEmpty()) {
             trace("Checking for game match");
             HashSet<Clip> clipSet = new HashSet<>(foundClips);
-            int numClips = clipSet.size(), clipLimit = 30;
-//            if (numClips > clipLimit) {
-//                sendMessage(channel, "Too many results (" + numClips + "/" + clipLimit + ") to filter by game, try narrowing down your search a bit...");
-//                return 1;
-//            }
 
             LinkedHashSet<Clip> gameClips = new LinkedHashSet<>();
             int temp = 0;
@@ -160,13 +160,13 @@ public class GetClip extends Command {
                 }
             }
             if (gameClips.size() == 0) {
-                sendMessage(channel, "No clips matching game:"+game);
+                messageQueue.queueMessage(channel, "No clips matching game:"+game);
                 return 1;
             }
             foundClips.retainAll(gameClips);
         }
 
-        sendMessage(channel, getRandomClip(foundClips).getUrl());
+        messageQueue.queueMessage(channel, getRandomClip(foundClips).getUrl());
         return 0;
     }
 

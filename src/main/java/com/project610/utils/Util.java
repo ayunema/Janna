@@ -3,6 +3,7 @@ package com.project610.utils;
 import com.github.twitch4j.helix.domain.Clip;
 import com.project610.Creds;
 import com.project610.Janna;
+import org.apache.commons.lang3.StringUtils;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -52,7 +53,7 @@ public class Util {
         ArrayList<String> args = new ArrayList<>();
         while (matcher.find()) {
             String group = matcher.group();
-            if (group.chars().filter(x -> x == '"').count() >= 2) {
+            if (StringUtils.countMatches(group, '"') >= 2) {
                 group = replaceCharAt(group, group.indexOf('"'), "");
                 group = replaceCharAt(group, group.lastIndexOf('"'), "");
             }
